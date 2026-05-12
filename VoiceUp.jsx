@@ -10,6 +10,17 @@ const IMG_BACKGROUND    = "/images/background.png";
 const IMG_LOGO_WAVE     = "/images/hi.png";
 const IMG_DOLPHIN_TEACHER = "/images/teach.png";
 
+// ─── localStorage helper ─────────────────────────────────────────────────────
+const LS = {
+  get(key, def) {
+    try { const v = localStorage.getItem(key); return v === null ? def : JSON.parse(v); }
+    catch { return def; }
+  },
+  set(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  },
+};
+
 const KEY_AZURE_KEY    = "vu_azure_key";
 const KEY_AZURE_REGION = "vu_azure_region";
 const KEY_GEMINI_KEY   = "vu_gemini_key";
