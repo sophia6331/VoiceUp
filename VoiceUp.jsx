@@ -61,6 +61,11 @@ const STYLES = `
     --shadow:     0 2px 12px rgba(0,0,0,0.4);
     --shadow-lg:  0 8px 32px rgba(0,0,0,0.6);
     --shadow-card:0 4px 16px rgba(0,0,0,0.3);
+    /* dark mode: override light hover backgrounds so text stays readable */
+    --blue-light: rgba(59,139,235,0.18);
+    --green-light:#0D2E1F;
+    --red-light:  #2E0D0D;
+    --yellow-light:#2E210A;
   }
 
   html, body, #root { height: 100%; }
@@ -1241,7 +1246,7 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
   })();
 
   return (
-    <div className="page">
+    <div className="page" style={{backgroundImage:`url(${IMG_BACKGROUND})`,backgroundPosition:"bottom right",backgroundRepeat:"no-repeat",backgroundSize:"200px auto",backgroundAttachment:"local"}}>
       <div style={{marginBottom:16}}>
         <img src={IMG_LOGO_TEXT} alt="VoiceUp" style={{height:34,objectFit:"contain",display:"block",marginBottom:4}} />
         <div style={{fontSize:13,color:"var(--text-2)",fontWeight:600}}>選一個場景，開口練習吧！</div>
@@ -2185,7 +2190,11 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
           </>
         )}
 
-        <button className="btn btn-primary btn-full" style={{marginTop:16}} onClick={onClose}>完成關閉</button>
+      </div>
+
+      {/* Sticky close button — always visible outside scroll */}
+      <div style={{flexShrink:0,padding:"12px 18px",borderTop:"1px solid var(--border)",background:"var(--bg-card)"}}>
+        <button className="btn btn-primary btn-full" onClick={onClose}>完成關閉</button>
       </div>
     </div>
   );
@@ -2559,6 +2568,7 @@ const PRACTICE_STYLES = `
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
     max-width: 480px;
     margin: 0 auto;
     background: var(--bg);
@@ -3037,6 +3047,8 @@ const PRACTICE_STYLES = `
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; justify-content: space-between;
     flex-shrink: 0;
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg-card);
   }
   .transcript-body {
     flex: 1; overflow-y: auto;
@@ -3116,33 +3128,40 @@ const PRACTICE_STYLES = `
   }
 `;
 
-// ─── AI API call (Claude via Artifact built-in, no CORS issues) ───────────────
+// ─── AI API call (Google Gemini) ──────────────────────────────────────────────
 async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
-  const messages = [
-    ...history.map(m => ({ role: m.role === "ai" ? "assistant" : "user", content: m.text })),
-    { role: "user", content: userMessage },
+  const apiKey = LS.get(KEY_GEMINI_KEY, "");
+  if (!apiKey) throw new Error("No Gemini API key set");
+
+  const contents = [
+    ...history.map(m => ({
+      role: m.role === "ai" ? "model" : "user",
+      parts: [{ text: m.text }],
+    })),
+    { role: "user", parts: [{ text: userMessage }] },
   ];
 
-  // Retry up to 2 times on failure
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages,
-        }),
-      });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents,
+            generationConfig: { maxOutputTokens: maxTokens },
+          }),
+        }
+      );
       if (!res.ok) {
         const errText = await res.text();
         if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); continue; }
         throw new Error(`API error ${res.status}: ${errText}`);
       }
       const data = await res.json();
-      return data.content?.[0]?.text || "";
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } catch (e) {
       if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); continue; }
       throw e;
