@@ -200,6 +200,11 @@ const STYLES = `
     margin: 0 auto;
     position: relative;
     background: var(--bg);
+    background-image: url('/images/background.png');
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    background-size: cover;
+    background-attachment: local;
   }
 
   .page {
@@ -1246,7 +1251,7 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
   })();
 
   return (
-    <div className="page" style={{backgroundImage:`url(${IMG_BACKGROUND})`,backgroundPosition:"bottom right",backgroundRepeat:"no-repeat",backgroundSize:"200px auto",backgroundAttachment:"local"}}>
+    <div className="page">
       <div style={{marginBottom:16}}>
         <img src={IMG_LOGO_TEXT} alt="VoiceUp" style={{height:34,objectFit:"contain",display:"block",marginBottom:4}} />
         <div style={{fontSize:13,color:"var(--text-2)",fontWeight:600}}>選一個場景，開口練習吧！</div>
@@ -3131,25 +3136,29 @@ const PRACTICE_STYLES = `
 // ─── AI API call (Google Gemini) ──────────────────────────────────────────────
 async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   const apiKey = LS.get(KEY_GEMINI_KEY, "");
-  if (!apiKey) throw new Error("No Gemini API key set");
+  if (!apiKey) throw new Error("未設定 Gemini API Key，請至設定頁面填入。");
 
+  // Gemini requires contents to start with "user" role — drop leading model turns
+  const rawHistory = history.map(m => ({
+    role: m.role === "ai" ? "model" : "user",
+    parts: [{ text: m.text }],
+  }));
+  let firstUser = 0;
+  while (firstUser < rawHistory.length && rawHistory[firstUser].role !== "user") firstUser++;
   const contents = [
-    ...history.map(m => ({
-      role: m.role === "ai" ? "model" : "user",
-      parts: [{ text: m.text }],
-    })),
+    ...rawHistory.slice(firstUser),
     { role: "user", parts: [{ text: userMessage }] },
   ];
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
+            system_instruction: { parts: [{ text: systemPrompt }] },
             contents,
             generationConfig: { maxOutputTokens: maxTokens },
           }),
@@ -3157,8 +3166,10 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
       );
       if (!res.ok) {
         const errText = await res.text();
+        let errMsg = `API 錯誤 ${res.status}`;
+        try { const j = JSON.parse(errText); errMsg += `: ${j.error?.message || errText}`; } catch {}
         if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); continue; }
-        throw new Error(`API error ${res.status}: ${errText}`);
+        throw new Error(errMsg);
       }
       const data = await res.json();
       return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -3167,7 +3178,7 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
       throw e;
     }
   }
-  throw new Error("Failed after retries");
+  throw new Error("重試後仍失敗，請稍後再試。");
 }
 
 // Parse Gemini JSON response safely
@@ -3718,14 +3729,7 @@ function PracticePage({ scenario, keys, onBack }) {
   const messagesRef = useRef(null);
   const styleRef    = useRef(false);
 
-  // Inject practice styles once
-  useEffect(() => {
-    if (styleRef.current) return;
-    styleRef.current = true;
-    let el = document.getElementById("voiceup-practice-styles");
-    if (!el) { el = document.createElement("style"); el.id = "voiceup-practice-styles"; document.head.appendChild(el); }
-    el.textContent = PRACTICE_STYLES;
-  }, []);
+  // Practice styles already injected globally by VoiceUp root component
 
   // Auto-scroll
   useEffect(() => {
@@ -4173,11 +4177,14 @@ export default function VoiceUp() {
     geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
   }));
 
-  // Inject styles
+  // Inject styles (both global + practice, so QuizModal from LibraryPage works)
   useEffect(() => {
     let el = document.getElementById("voiceup-styles");
     if (!el) { el = document.createElement("style"); el.id = "voiceup-styles"; document.head.appendChild(el); }
     el.textContent = STYLES;
+    let el2 = document.getElementById("voiceup-practice-styles");
+    if (!el2) { el2 = document.createElement("style"); el2.id = "voiceup-practice-styles"; document.head.appendChild(el2); }
+    el2.textContent = PRACTICE_STYLES;
   }, []);
 
   // Apply dark mode
