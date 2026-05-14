@@ -215,7 +215,6 @@ const STYLES = `
   .page {
     flex: 1;
     padding: 24px 18px 96px;
-    animation: fadeUp 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
   }
 
   @keyframes fadeUp {
@@ -2591,7 +2590,6 @@ const PRACTICE_STYLES = `
     max-width: 480px;
     margin: 0 auto;
     background: var(--bg);
-    animation: fadeUp 0.3s ease both;
   }
 
   /* Header */
@@ -3005,7 +3003,7 @@ const PRACTICE_STYLES = `
     width: 100%;
     max-width: 420px;
     padding: 24px 20px;
-    animation: fadeUp 0.25s ease;
+    
   }
 
   .tag-row {
@@ -3163,7 +3161,7 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
