@@ -68,7 +68,7 @@ const STYLES = `
     --yellow-light:#2E210A;
   }
 
-  html, body, #root { height: 100%; }
+  html, body, #root { height: 100%; overflow-x: hidden; }
 
   body {
     font-family: 'Nunito', sans-serif;
@@ -206,6 +206,11 @@ const STYLES = `
     background-size: cover;
     background-attachment: local;
   }
+  [data-theme="dark"] .app-shell {
+    background-image:
+      linear-gradient(rgba(0,0,0,0.62), rgba(0,0,0,0.62)),
+      url('/images/background.png');
+  }
 
   .page {
     flex: 1;
@@ -214,8 +219,8 @@ const STYLES = `
   }
 
   @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(18px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
 
   @keyframes popIn {
@@ -784,6 +789,7 @@ const KEY_GEMINI_KEY   = "vu_gemini_key";
 const KEY_DARK_MODE    = "vu_dark_mode";
 const KEY_ONBOARDED    = "vu_onboarded";
 const KEY_STREAK_DAYS  = "vu_streak_days";   // array of "YYYY-MM-DD"
+const KEY_JOINED_DATE  = "vu_joined_date";    // "YYYY-MM-DD" first open
 const KEY_STATS        = "vu_stats";         // { savedSentences, sessions }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -1101,6 +1107,7 @@ function Onboarding({ onComplete }) {
     LS.set(KEY_AZURE_REGION, azureRegion.trim() || "eastasia");
     LS.set(KEY_GEMINI_KEY,   geminiKey.trim());
     LS.set(KEY_ONBOARDED,    true);
+    if (!LS.get(KEY_JOINED_DATE)) LS.set(KEY_JOINED_DATE, new Date().toISOString().slice(0,10));
     onComplete();
   };
 
@@ -1235,6 +1242,10 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
   const streakDays = LS.get(KEY_STREAK_DAYS, []);
   const stats      = LS.get(KEY_STATS, { savedSentences: 0, sessions: 0 });
   const hasKeys    = keys.azureKey; // Azure optional; AI uses built-in Claude API
+  // Days since first open — hide streak/sleep banner for new users (< 4 days)
+  const joinedISO    = LS.get(KEY_JOINED_DATE, null) || new Date().toISOString().slice(0,10);
+  const daysSinceJoin = Math.floor((Date.now() - new Date(joinedISO).getTime()) / 86400000);
+  const isNewUser    = daysSinceJoin < 3;
 
   const now = new Date();
   const todayISO = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
@@ -1264,10 +1275,9 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
         </div>
       )}
 
-      {/* Dolphin sleeping banner — 3+ days no practice */}
+      {/* Dolphin sleeping banner — only after 4+ days of usage, 3+ inactive days */}
       {(() => {
-        // Only show "missed you" if user has practiced at least 3 times AND none in last 3 days
-        if (streakDays.length < 3) return null;
+        if (isNewUser) return null; // hide for brand-new users
         const mkISO = (daysAgo) => new Date(Date.now() - daysAgo*86400000).toISOString().slice(0,10);
         const [d0,d1,d2] = [mkISO(0),mkISO(1),mkISO(2)];
         const inactive = !streakDays.includes(d0) && !streakDays.includes(d1) && !streakDays.includes(d2);
@@ -1283,8 +1293,8 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
         );
       })()}
 
-      {/* Streak bar */}
-      <div className="streak-bar" style={{position:"relative",overflow:"visible",marginBottom:streak>=3?28:16}}>
+      {/* Streak bar — hide for new users (first 3 days) */}
+      {!isNewUser && <div className="streak-bar" style={{position:"relative",overflow:"visible",marginBottom:streak>=3?28:16}}>
         {streak >= 7 && (
           <img src={IMG_DOLPHIN_HAPPY} alt="🎉" style={{
             position:"absolute",right:-8,top:-50,width:80,height:80,objectFit:"contain",
@@ -1299,7 +1309,10 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
             filter:"drop-shadow(0 3px 8px rgba(59,139,235,0.3))",pointerEvents:"none",
           }} />
         )}
-        <span className="streak-flame">{streak === 0 ? "💤" : "🔥"}</span>
+        {streak === 0
+          ? <img src={IMG_DOLPHIN_SLEEP} alt="💤" style={{width:44,height:44,objectFit:"contain",flexShrink:0}} />
+          : <span className="streak-flame">🔥</span>
+        }
         <div className="streak-info">
           <div className="streak-count">{streak}</div>
           <div className="streak-label">
@@ -1311,10 +1324,10 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
         <div style={{background:"rgba(255,255,255,0.22)",color:"white",padding:"4px 12px",borderRadius:99,fontSize:11,fontWeight:800}}>
           {streakDays.filter(d=>d.startsWith(String(now.getFullYear())+"-"+String(now.getMonth()+1).padStart(2,"0"))).length} 天/本月
         </div>
-      </div>
+      </div>}
 
-      {/* Stats */}
-      <div className="stat-row">
+      {/* Stats — hide for new users */}
+      {!isNewUser && <div className="stat-row">
         <div className="stat-item">
           <div className="stat-value">{stats.sessions}</div>
           <div className="stat-label">練習場次</div>
@@ -1327,7 +1340,7 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
           <div className="stat-value">{streakDays.length}</div>
           <div className="stat-label">累積天數</div>
         </div>
-      </div>
+      </div>}
 
       {/* Scenarios */}
       <div className="section-label">選擇練習場景</div>
@@ -1689,8 +1702,9 @@ Reply with ONLY the opening line (1-2 sentences, plain text, no JSON).`,
         );
         const opener = raw.trim();
         setChatHistory([{ role: "ai", text: opener }]);
-      } catch {
+      } catch (err) {
         setChatHistory([{ role: "ai", text: "Let's chat! Tell me about something interesting that happened to you recently." }]);
+        console.warn("Dialog opener error:", err.message);
       }
       setDialogBusy(false);
     } else {
@@ -3136,49 +3150,46 @@ const PRACTICE_STYLES = `
 // ─── AI API call (Google Gemini) ──────────────────────────────────────────────
 async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   const apiKey = LS.get(KEY_GEMINI_KEY, "");
-  if (!apiKey) throw new Error("未設定 Gemini API Key，請至設定頁面填入。");
+  if (!apiKey) throw new Error("未設定 Gemini API Key — 請至設定頁面填入金鑰");
 
-  // Gemini requires contents to start with "user" role — drop leading model turns
-  const rawHistory = history.map(m => ({
-    role: m.role === "ai" ? "model" : "user",
-    parts: [{ text: m.text }],
-  }));
-  let firstUser = 0;
-  while (firstUser < rawHistory.length && rawHistory[firstUser].role !== "user") firstUser++;
-  const contents = [
-    ...rawHistory.slice(firstUser),
-    { role: "user", parts: [{ text: userMessage }] },
-  ];
+  // Gemini: contents must alternate user/model, start with user
+  const histParts = history
+    .filter(m => m.role === "user" || m.role === "ai")
+    .map(m => ({ role: m.role === "ai" ? "model" : "user", parts: [{ text: m.text }] }));
+  // Drop leading model turns
+  while (histParts.length && histParts[0].role === "model") histParts.shift();
+  const contents = [...histParts, { role: "user", parts: [{ text: userMessage }] }];
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
             contents,
             generationConfig: { maxOutputTokens: maxTokens },
           }),
         }
       );
       if (!res.ok) {
-        const errText = await res.text();
-        let errMsg = `API 錯誤 ${res.status}`;
-        try { const j = JSON.parse(errText); errMsg += `: ${j.error?.message || errText}`; } catch {}
-        if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        let errMsg = `Gemini API 錯誤 (HTTP ${res.status})`;
+        try { const j = await res.json(); errMsg = `Gemini: ${j.error?.message || j.error?.status || res.status}`; } catch {}
+        if (attempt === 0) { await new Promise(r => setTimeout(r, 1200)); continue; }
         throw new Error(errMsg);
       }
       const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("Gemini 回傳空白結果，請稍後再試");
+      return text;
     } catch (e) {
-      if (attempt === 0) { await new Promise(r => setTimeout(r, 1000)); continue; }
+      if (attempt === 0) { await new Promise(r => setTimeout(r, 1200)); continue; }
       throw e;
     }
   }
-  throw new Error("重試後仍失敗，請稍後再試。");
+  throw new Error("連線失敗，請確認 Gemini API Key 正確並重試");
 }
 
 // Parse Gemini JSON response safely
@@ -3872,7 +3883,7 @@ Reply ONLY with this JSON:
     } catch (err) {
       setMessages(prev => [...prev, {
         id: Date.now() + 1, role: "ai",
-        text: "⚠️ Connection issue — please try again in a moment.",
+        text: `⚠️ ${err.message || "連線失敗，請稍後再試"}`,
       }]);
     }
 
