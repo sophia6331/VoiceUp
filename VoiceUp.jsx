@@ -68,7 +68,10 @@ const STYLES = `
     --yellow-light:#2E210A;
   }
 
-  html, body, #root { height: 100%; overflow-x: hidden; }
+  html, body, #root { height: 100%; }
+  /* NOTE: overflow-x:hidden is intentionally NOT on body/html —
+     iOS Safari would treat body as the containing block for position:fixed,
+     breaking all full-screen overlays. Apply it on .app-shell instead. */
 
   body {
     font-family: 'Nunito', sans-serif;
@@ -199,6 +202,7 @@ const STYLES = `
     max-width: 480px;
     margin: 0 auto;
     position: relative;
+    overflow-x: hidden;
     background: var(--bg);
     background-image: url('/images/background.png');
     background-repeat: no-repeat;
