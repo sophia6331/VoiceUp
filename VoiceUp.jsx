@@ -1,5 +1,11 @@
-// VoiceUp v3.9
+// VoiceUp v4.0
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
+
+// Portal: renders children directly into document.body, bypassing all CSS stacking contexts
+function Portal({ children }) {
+  return createPortal(children, document.body);
+}
 
 // ─── Image assets (paths) ─────────────────────────────────────────────────────
 const IMG_LOGO_DOLPHIN    = "/images/full_logo.png";
@@ -1546,8 +1552,9 @@ function SettingsPage({ keys, setKeys, darkMode, setDarkMode }) {
       <div className="settings-section">
         <div className="settings-row" onClick={() => {
           const data = {
+            library:    LS.get(KEY_LIBRARY, []),
             streakDays: LS.get(KEY_STREAK_DAYS, []),
-            stats: LS.get(KEY_STATS, {}),
+            stats:      LS.get(KEY_STATS, {}),
           };
           const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
           const url = URL.createObjectURL(blob);
@@ -1555,7 +1562,39 @@ function SettingsPage({ keys, setKeys, darkMode, setDarkMode }) {
         }}>
           <div className="settings-row-left">
             <div className="settings-row-title">📤 匯出練習紀錄</div>
-            <div className="settings-row-desc">下載 JSON 備份檔</div>
+            <div className="settings-row-desc">下載 JSON 備份檔（含儲存的句子）</div>
+          </div>
+          <div className="settings-row-right"><Icons.ChevronRight /></div>
+        </div>
+        <div className="settings-row" onClick={() => {
+          const input = document.createElement("input");
+          input.type = "file"; input.accept = ".json";
+          input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              try {
+                const data = JSON.parse(ev.target.result);
+                // Merge library: combine existing + imported, deduplicate by id
+                if (Array.isArray(data.library)) {
+                  const existing = LS.get(KEY_LIBRARY, []) || [];
+                  const existingIds = new Set(existing.map(e => e.id));
+                  const merged = [...existing, ...data.library.filter(e => !existingIds.has(e.id))];
+                  LS.set(KEY_LIBRARY, merged);
+                }
+                if (data.streakDays) LS.set(KEY_STREAK_DAYS, data.streakDays);
+                if (data.stats) LS.set(KEY_STATS, data.stats);
+                alert("✅ 匯入成功！句子已合併到學習庫。");
+              } catch { alert("❌ 檔案格式錯誤，請使用 VoiceUp 匯出的 JSON 檔案。"); }
+            };
+            reader.readAsText(file);
+          };
+          input.click();
+        }}>
+          <div className="settings-row-left">
+            <div className="settings-row-title">📥 匯入備份</div>
+            <div className="settings-row-desc">匯入 JSON 備份，句子會與現有資料合併</div>
           </div>
           <div className="settings-row-right"><Icons.ChevronRight /></div>
         </div>
@@ -1846,6 +1885,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
   // SETUP SCREEN
   // ══════════════════════════════════════════════════════════════════════════
   if (step === "setup") return (
+    <Portal>
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-sheet">
         <div className="modal-handle" />
@@ -1904,6 +1944,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
         <button className="btn btn-ghost btn-full" style={{marginTop:8}} onClick={onClose}>取消</button>
       </div>
     </div>
+    </Portal>
   );
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1913,6 +1954,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
     const current = questions[qIndex];
     if (!current) return null;
     return (
+      <Portal>
       <div className="modal-overlay" style={{alignItems:"stretch"}}>
         <div className="modal-sheet" style={{display:"flex",flexDirection:"column",maxHeight:"100vh"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -1976,6 +2018,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
           )}
         </div>
       </div>
+      </Portal>
     );
   }
 
@@ -1987,6 +2030,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
     const totalCount    = targets.length;
 
     return (
+      <Portal>
       <div className="dialog-quiz-shell" style={{animation:"fadeUp 0.3s ease both"}}>
           {/* Header */}
           <div style={{
@@ -2089,6 +2133,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
             </div>
           )}
       </div>
+      </Portal>
     );
   }
 
@@ -2098,6 +2143,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
   if (!isDialog) {
     const wrongCount = results.length - correctCount;
     return (
+      <Portal>
       <div className="modal-overlay">
         <div className="modal-sheet" style={{textAlign:"center",paddingTop:32}}>
           <div className="modal-handle" />
@@ -2128,6 +2174,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
           <button className="btn btn-ghost btn-full" style={{marginTop:8}} onClick={onClose}>完成關閉</button>
         </div>
       </div>
+      </Portal>
     );
   }
 
@@ -2138,6 +2185,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
   const naturalItems    = detectedItems.filter(t => (hintsGiven[t.id] || 0) === 0);
 
   return (
+    <Portal>
     <div className="dialog-quiz-shell">
       {/* Header with close button */}
       <div style={{
@@ -2219,6 +2267,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
         <button className="btn btn-primary btn-full" onClick={onClose}>完成關閉</button>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -2794,6 +2843,7 @@ const PRACTICE_STYLES = `
   .input-area {
     flex-shrink: 0;
     padding: 10px 14px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
     background: var(--bg-card);
     border-top: 1px solid var(--border);
   }
@@ -3165,7 +3215,7 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3429,15 +3479,18 @@ ${english}` }],
 // ─── Summary Modal ────────────────────────────────────────────────────────────
 function SummaryModal({ summary, msgCount, onClose }) {
   if (!summary) return (
+    <Portal>
     <div className="summary-modal">
       <div className="summary-sheet" style={{textAlign:"center",padding:"60px 20px"}}>
         <div style={{fontSize:32,marginBottom:12}}>⏳</div>
         <div style={{fontSize:15,fontWeight:600}}>正在生成本次總結...</div>
       </div>
     </div>
+    </Portal>
   );
 
   return (
+    <Portal>
     <div className="summary-modal">
       <div className="summary-sheet">
         <div className="modal-handle" />
@@ -3485,6 +3538,7 @@ function SummaryModal({ summary, msgCount, onClose }) {
         <button className="btn btn-primary btn-full" onClick={onClose}>完成，回到首頁</button>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -3574,6 +3628,7 @@ function CustomScenarioModal({ onStart, onClose }) {
   const canStart = aiRole.trim() && userRole.trim() && context.trim();
 
   return (
+    <Portal>
     <div className="custom-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="custom-modal-sheet">
         <div className="modal-handle" />
@@ -3605,6 +3660,7 @@ function CustomScenarioModal({ onStart, onClose }) {
         <button className="btn btn-ghost btn-full" style={{marginTop:8}} onClick={onClose}>取消</button>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -3644,6 +3700,7 @@ function TranscriptModal({ messages, initialSavedIds, initialEntryMap, onClose }
   };
 
   return (
+    <Portal>
     <div className="transcript-modal">
       <div className="transcript-header">
         <div>
@@ -3717,6 +3774,7 @@ function TranscriptModal({ messages, initialSavedIds, initialEntryMap, onClose }
         />
       )}
     </div>
+    </Portal>
   );
 }
 
