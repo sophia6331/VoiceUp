@@ -3280,11 +3280,11 @@ const PRACTICE_STYLES = `
 // ─── AI API call (Google Gemini) ──────────────────────────────────────────────
 // Models tried in order; once one succeeds its name is cached in localStorage.
 const GEMINI_MODELS = [
-  "gemini-2.0-flash-lite",   // free tier: 30 RPM
-  "gemini-1.5-flash",         // free tier: 15 RPM
-  "gemini-1.5-flash-001",     // explicit version
-  "gemini-2.0-flash",         // may need billing
-  "gemini-1.5-pro",           // larger, still free
+  "gemini-2.5-flash",          // newest free tier (recommended)
+  "gemini-2.5-flash-preview-05-20", // preview variant name
+  "gemini-2.0-flash-lite",    // 2.0 lite
+  "gemini-2.0-flash",          // 2.0 standard
+  "gemini-1.5-flash",          // 1.5 (may be deprecated)
 ];
 const KEY_GEMINI_MODEL = "vu_gemini_model"; // cached working model
 
