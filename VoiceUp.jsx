@@ -1707,6 +1707,9 @@ function QuizModal({ mode, library, allTags, onClose }) {
   const [quizListening,  setQuizListening]  = useState(false);
   const [quizInterim,    setQuizInterim]    = useState("");
   const quizRecogRef = useRef(null);
+  const [flashListening, setFlashListening] = useState(false);
+  const [flashInterim,   setFlashInterim]   = useState("");
+  const flashRecogRef = useRef(null);
   const chatEndRef = useRef(null);
 
   // ── Quiz voice input (same Azure SDK as PracticePage) ──────────────────
@@ -1753,6 +1756,52 @@ function QuizModal({ mode, library, allTags, onClose }) {
         () => { setQuizListening(false); setQuizInterim(""); quizRecogRef.current = null; }
       );
     } else { setQuizListening(false); setQuizInterim(""); }
+  }, []);
+
+  // ── Flashcard quiz voice input ─────────────────────────────────────────
+  const stopFlashMic = useCallback(() => {
+    if (flashRecogRef.current) {
+      flashRecogRef.current.stopContinuousRecognitionAsync(
+        () => { setFlashListening(false); setFlashInterim(""); flashRecogRef.current = null; },
+        () => { setFlashListening(false); setFlashInterim(""); flashRecogRef.current = null; }
+      );
+    } else { setFlashListening(false); setFlashInterim(""); }
+  }, []);
+
+  const startFlashMic = useCallback(async () => {
+    const azureKey    = LS.get(KEY_AZURE_KEY, "");
+    const azureRegion = LS.get(KEY_AZURE_REGION, "eastasia");
+    if (!azureKey) { alert("請先在設定頁面填入 Azure Speech Key。"); return; }
+    if (!window.SpeechSDK) {
+      const urls = [
+        "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+        "https://unpkg.com/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+      ];
+      let ok = false;
+      for (const url of urls) {
+        try { await new Promise((res, rej) => { const s = document.createElement("script"); s.src = url; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); ok = true; break; } catch {}
+      }
+      if (!ok) { alert("無法載入語音 SDK，請確認網路連線正常。"); return; }
+    }
+    const SDK = window.SpeechSDK;
+    const config = SDK.SpeechConfig.fromSubscription(azureKey, azureRegion);
+    config.speechRecognitionLanguage = "en-US";
+    const recognizer = new SDK.SpeechRecognizer(config, SDK.AudioConfig.fromDefaultMicrophoneInput());
+    flashRecogRef.current = recognizer;
+    recognizer.recognizing = (_, e) => setFlashInterim(e.result.text);
+    recognizer.recognized  = (_, e) => {
+      if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) {
+        setUserAnswer(prev => (prev ? prev + " " : "") + e.result.text);
+        setFlashInterim("");
+        stopFlashMic();
+      }
+    };
+    recognizer.canceled = (_, e) => {
+      stopFlashMic();
+      if (e?.errorDetails?.includes("401") || e?.errorDetails?.includes("Unauthorized"))
+        alert("Azure Key 驗證失敗，請至設定頁面確認 Key 與 Region。");
+    };
+    recognizer.startContinuousRecognitionAsync(() => setFlashListening(true), err => { console.error(err); setFlashListening(false); });
   }, []);
 
   const eligible = library.filter(it =>
@@ -2030,11 +2079,38 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
 
           {!feedback ? (
             <>
-              <textarea className="input-field-text" value={userAnswer}
-                onChange={e => setUserAnswer(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); judgeAnswer(); } }}
-                placeholder="用英文打字回答，Enter 送出..." rows={3}
-                style={{resize:"none",marginBottom:12}} disabled={judging} />
+              {flashInterim && (
+                <div style={{fontSize:13,color:"var(--amber-dim)",fontStyle:"italic",
+                  padding:"6px 10px",background:"rgba(232,164,74,0.08)",borderRadius:8,
+                  border:"1.5px dashed rgba(232,164,74,0.4)",marginBottom:8}}>
+                  🎙 {flashInterim}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:12}}>
+                <button
+                  onClick={() => flashListening ? stopFlashMic() : startFlashMic()}
+                  disabled={judging}
+                  style={{
+                    width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,cursor:"pointer",
+                    background: flashListening ? "var(--red)" : "var(--blue-light)",
+                    color: flashListening ? "white" : "var(--blue)",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    boxShadow: flashListening ? "0 0 0 3px rgba(240,84,79,0.25)" : "none",
+                    transition:"all 0.2s",
+                  }}
+                  title={flashListening ? "點擊停止" : "語音輸入"}
+                >
+                  {flashListening
+                    ? <svg viewBox="0 0 24 24" fill="currentColor" style={{width:18,height:18}}><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                    : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{width:18,height:18}}><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  }
+                </button>
+                <textarea className="input-field-text" value={userAnswer}
+                  onChange={e => setUserAnswer(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); judgeAnswer(); } }}
+                  placeholder={flashListening ? "🎙 聆聽中..." : "用英文打字或語音回答..."}
+                  rows={2} style={{resize:"none",flex:1}} disabled={judging} />
+              </div>
               <button className="btn btn-primary btn-full" onClick={judgeAnswer}
                 disabled={!userAnswer.trim() || judging}>
                 {judging ? "判斷中..." : "送出"}
@@ -2164,7 +2240,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
 
           {/* Input */}
           {!dialogDone && (
-            <div className="dialog-quiz-input" style={{flexDirection:"column",gap:6}}>
+            <div className="dialog-quiz-input" style={{flexDirection:"column",gap:6,alignItems:"stretch"}}>
               {quizInterim && (
                 <div style={{fontSize:13,color:"var(--amber-dim)",fontStyle:"italic",padding:"4px 6px",
                   background:"rgba(232,164,74,0.08)",borderRadius:8,border:"1.5px dashed rgba(232,164,74,0.4)"}}>
@@ -3441,19 +3517,13 @@ function SaveSentenceModal({ sentence, originalSentence, onClose, onSaved }) {
   useEffect(() => {
     if (!english.trim() || isNew) return;
     setChineseLoading(true);
-    fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 150,
-        messages: [{ role: "user", content: `Translate this English sentence to Traditional Chinese (繁體中文). Reply with ONLY the translation text in plain form. Do NOT add quotation marks of any kind (no 「」 「」 " ' or any brackets). Just the plain Chinese translation:
-
-${english}` }],
-      }),
-    })
-      .then(r => r.json())
-      .then(d => { let t = d.content?.[0]?.text?.trim() || ""; t = t.replace(/^[「\"\u201C\u300C]+|[」\"\u201D\u300D]+$/g, "").trim(); setChinese(t); })
+    callAI(
+      "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind (no 「」 \" \' or any brackets). Just the plain Chinese translation.",
+      [],
+      english,
+      120
+    )
+      .then(t => { t = (t || "").replace(/^[「『\"\u201C]+|[」』\"\u201D]+$/g, "").trim(); setChinese(t); })
       .catch(() => {})
       .finally(() => setChineseLoading(false));
   }, []);
@@ -3509,16 +3579,13 @@ ${english}` }],
                 onClick={() => {
                   if (chineseLoading) return;
                   setChineseLoading(true);
-                  fetch("https://api.anthropic.com/v1/messages", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      model: "claude-sonnet-4-20250514",
-                      max_tokens: 150,
-                      messages: [{ role: "user", content: `Translate to Traditional Chinese (繁體中文). Reply with ONLY the translation, no quotes, no brackets:\n\n${english}` }],
-                    }),
-                  }).then(r => r.json())
-                    .then(d => { let t = d.content?.[0]?.text?.trim() || ""; t = t.replace(/^[「"\u201C\u300C]+|[」"\u201D\u300D]+$/g, "").trim(); setChinese(t); })
+                  callAI(
+                    "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind. Just the plain Chinese translation.",
+                    [],
+                    english,
+                    120
+                  )
+                    .then(t => { t = (t || "").replace(/^[「『"\'\u201C]+|[」』"\'\u201D]+$/g, "").trim(); setChinese(t); })
                     .catch(() => {})
                     .finally(() => setChineseLoading(false));
                 }}
@@ -4257,223 +4324,4 @@ Reply ONLY with this JSON:
                 <button
                   className="btn btn-primary"
                   style={{padding:"5px 10px",fontSize:11,flexShrink:0,marginTop:-2}}
-                  onClick={() => { if (!isProcessing) sendMessage(currentHints.hint3, true); }}
-                  disabled={isProcessing}
-                  title="直接送出此示範句"
-                >
-                  ✈ 送出
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Interim status */}
-        {isListening && (
-          <div className="interim-strip">
-            {interimText ? `聽到：${interimText}` : "🎙️ 聆聽中，請開口說英文..."}
-          </div>
-        )}
-
-        {/* Input row */}
-        <div className="input-row">
-          {/* Mic button — disabled with tooltip when no Azure key */}
-          <div style={{position:"relative",flexShrink:0}}>
-            <button
-              className={`mic-btn ${isProcessing ? "processing" : isListening ? "listening" : "idle"}`}
-              onClick={hasAzure ? toggleMic : undefined}
-              disabled={isProcessing || !hasAzure}
-              title={!hasAzure ? "請在設定頁面填入 Azure Speech Key 以啟用語音輸入" : isListening ? "點擊停止錄音" : "點擊開始語音輸入"}
-              style={!hasAzure ? {opacity:0.35,cursor:"not-allowed"} : {}}
-            >
-              {isProcessing
-                ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:20,height:20}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                : isListening
-                  ? <svg viewBox="0 0 24 24" fill="currentColor" style={{width:18,height:18}}><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:20,height:20}}><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10a7 7 0 01-14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
-              }
-            </button>
-            {!hasAzure && (
-              <div style={{position:"absolute",top:-6,right:-6,width:16,height:16,background:"var(--amber)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#1A1714",border:"2px solid var(--bg-card)"}}>
-                !
-              </div>
-            )}
-          </div>
-
-          {/* Text input */}
-          <textarea
-            className="text-input-box"
-            value={textInput}
-            onChange={e => setTextInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (textInput.trim()) { sendMessage(textInput); setTextInput(""); }
-              }
-            }}
-            placeholder={isListening ? "語音輸入中..." : !hasAzure ? "用文字練習（無 Azure Key，語音功能停用）" : "打字或語音輸入，Enter 送出"}
-            disabled={isListening || isProcessing}
-            rows={1}
-          />
-
-          {/* Send button */}
-          <button
-            className="send-btn"
-            disabled={!textInput.trim() || isProcessing || isListening}
-            onClick={() => { if (textInput.trim()) { sendMessage(textInput); setTextInput(""); } }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:18,height:18}}>
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Transcript modal (shown when session ends) */}
-      {showTranscript && (
-        <TranscriptModal
-          messages={messages}
-          initialSavedIds={savedMsgIds}
-          initialEntryMap={savedEntryMap}
-          onClose={() => { setShowTranscript(false); onBack(); }}
-        />
-      )}
-
-      {/* Save sentence modal (from conversation, not transcript) */}
-      {saveTarget && (
-        <SaveSentenceModal
-          sentence={saveTarget.sentence || saveTarget}
-          originalSentence={saveTarget.original || null}
-          onSaved={(entryId) => {
-            if (saveTarget.msgId) {
-              setSavedMsgIds(prev => new Set([...prev, saveTarget.msgId]));
-              setSavedEntryMap(prev => ({...prev, [saveTarget.msgId]: entryId}));
-            }
-          }}
-          onClose={() => setSaveTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
-export default function VoiceUp() {
-  const [darkMode,      setDarkMode]      = useState(() => LS.get(KEY_DARK_MODE, false));
-  const [onboarded,     setOnboarded]     = useState(() => LS.get(KEY_ONBOARDED, false));
-  const [tab,           setTab]           = useState("home");
-  const [scenario,      setScenario]      = useState(null);
-  const [showCustomModal, setShowCustomModal] = useState(false);
-  const [keys,          setKeys]          = useState(() => ({
-    azureKey:    LS.get(KEY_AZURE_KEY,    ""),
-    azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
-    geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
-  }));
-
-  // Inject styles (both global + practice, so QuizModal from LibraryPage works)
-  useEffect(() => {
-    let el = document.getElementById("voiceup-styles");
-    if (!el) { el = document.createElement("style"); el.id = "voiceup-styles"; document.head.appendChild(el); }
-    el.textContent = STYLES;
-    let el2 = document.getElementById("voiceup-practice-styles");
-    if (!el2) { el2 = document.createElement("style"); el2.id = "voiceup-practice-styles"; document.head.appendChild(el2); }
-    el2.textContent = PRACTICE_STYLES;
-  }, []);
-
-  // Apply dark mode
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
-
-  if (!onboarded) {
-    return <Onboarding onComplete={() => {
-      // Reload keys from localStorage after onboarding saves them
-      setKeys({
-        azureKey:    LS.get(KEY_AZURE_KEY,    ""),
-        azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
-        geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
-      });
-      setOnboarded(true);
-    }} />;
-  }
-
-  const handleStartScenario = (s) => {
-    setScenario(s);
-    setTab("practice");
-  };
-
-  const handleStartCustom = () => {
-    setShowCustomModal(true);
-  };
-
-  const handleCustomStart = ({ aiRole, userRole, context }) => {
-    setShowCustomModal(false);
-    const customScenario = {
-      id: "custom", emoji: "✏️", name: "自訂場景",
-      desc: context, level: "自訂",
-      aiRole, userRole, context, customReady: true,
-    };
-    setScenario(customScenario);
-    setTab("practice");
-  };
-
-  const handleBackFromPractice = () => {
-    setScenario(null);
-    setTab("home");
-  };
-
-  const NAV_ITEMS = [
-    { id: "home",     label: "首頁",   iconComp: Icons.Home },
-    { id: "library",  label: "學習庫", iconComp: Icons.Book },
-    { id: "progress", label: "進度",   iconComp: Icons.Chart },
-    { id: "settings", label: "設定",   iconComp: Icons.Gear },
-  ];
-
-  return (
-    <div className="app-shell">
-      {/* Page content */}
-      {tab === "home" && <HomePage keys={keys} onStartScenario={handleStartScenario} onStartCustom={handleStartCustom} />}
-      {tab === "library" && <LibraryPage />}
-      {tab === "progress" && <ProgressPage />}
-      {tab === "settings" && (
-        <SettingsPage
-          keys={keys}
-          setKeys={setKeys}
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-        />
-      )}
-      {tab === "practice" && scenario && (
-        <PracticePage scenario={scenario} keys={keys} onBack={handleBackFromPractice} />
-      )}
-
-      {/* Custom scenario setup modal */}
-      {showCustomModal && (
-        <CustomScenarioModal
-          onStart={handleCustomStart}
-          onClose={() => setShowCustomModal(false)}
-        />
-      )}
-
-      {/* Bottom nav (hidden during practice) */}
-      {tab !== "practice" && (
-        <nav className="bottom-nav">
-          {NAV_ITEMS.map(item => {
-            const isActive = tab === item.id;
-            const IconComp = item.iconComp;
-            return (
-              <button
-                key={item.id}
-                className={`nav-item ${isActive ? "active" : ""}`}
-                onClick={() => setTab(item.id)}
-              >
-                <IconComp active={isActive} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-      )}
-    </div>
-  );
-}
+                  onClick={() => { if (!isP
