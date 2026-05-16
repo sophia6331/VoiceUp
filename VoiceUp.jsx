@@ -2721,7 +2721,7 @@ const PRACTICE_STYLES = `
   .msg-avatar.ai   { background: var(--amber-glow); border: 1.5px solid rgba(232,164,74,0.3); }
   .msg-avatar.user { background: var(--bg-input); border: 1.5px solid var(--border); }
 
-  .msg-bubble-wrap { max-width: 78%; display: flex; flex-direction: column; gap: 4px; }
+  .msg-bubble-wrap { max-width: 78%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .msg-row.user .msg-bubble-wrap { align-items: flex-end; }
 
   .msg-bubble {
@@ -2730,6 +2730,9 @@ const PRACTICE_STYLES = `
     font-size: 14px;
     line-height: 1.55;
     position: relative;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
   }
 
   .msg-bubble.ai {
@@ -3215,7 +3218,7 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3957,18 +3960,28 @@ Reply ONLY with this JSON:
       return;
     }
 
-    // Dynamically load Azure Speech SDK
+    // Dynamically load Azure Speech SDK (jsDelivr CDN — more reliable than aka.ms)
     if (!window.SpeechSDK) {
-      try {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://aka.ms/csspeech/jsbrowserpackageraw";
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      } catch {
-        alert("無法載入 Azure Speech SDK，請檢查網路連線。");
+      const SDK_URLS = [
+        "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+        "https://unpkg.com/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+      ];
+      let loaded = false;
+      for (const url of SDK_URLS) {
+        try {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = url;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+          loaded = true;
+          break;
+        } catch { /* try next URL */ }
+      }
+      if (!loaded) {
+        alert("無法載入語音 SDK，請確認網路連線正常後再試。");
         return;
       }
     }
@@ -3993,7 +4006,18 @@ Reply ONLY with this JSON:
       }
     };
 
-    recognizer.canceled = () => { stopListening(); };
+    recognizer.canceled = (_, e) => {
+      stopListening();
+      if (e && e.errorDetails) {
+        if (e.errorDetails.includes("401") || e.errorDetails.includes("Unauthorized")) {
+          alert("Azure Speech Key 驗證失敗，請至設定頁面確認 Key 與 Region 是否正確。");
+        } else if (e.errorDetails.includes("mic") || e.errorDetails.includes("microphone")) {
+          alert("無法存取麥克風，請確認瀏覽器已授予麥克風權限。");
+        } else {
+          console.error("Azure canceled:", e.errorDetails);
+        }
+      }
+    };
 
     recognizer.startContinuousRecognitionAsync(
       () => setIsListening(true),
