@@ -3278,6 +3278,24 @@ const PRACTICE_STYLES = `
 `;
 
 // ─── AI API call (Google Gemini) ──────────────────────────────────────────────
+// Models tried in order; once one succeeds its name is cached in localStorage.
+const GEMINI_MODELS = [
+  "gemini-2.0-flash-lite",   // free tier: 30 RPM
+  "gemini-1.5-flash",         // free tier: 15 RPM
+  "gemini-1.5-flash-001",     // explicit version
+  "gemini-2.0-flash",         // may need billing
+  "gemini-1.5-pro",           // larger, still free
+];
+const KEY_GEMINI_MODEL = "vu_gemini_model"; // cached working model
+
+async function tryGeminiModel(model, apiKey, body) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+  return res;
+}
+
 async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   const apiKey = LS.get(KEY_GEMINI_KEY, "");
   if (!apiKey) throw new Error("未設定 Gemini API Key — 請至設定頁面填入金鑰");
@@ -3286,40 +3304,45 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   const histParts = history
     .filter(m => m.role === "user" || m.role === "ai")
     .map(m => ({ role: m.role === "ai" ? "model" : "user", parts: [{ text: m.text }] }));
-  // Drop leading model turns
   while (histParts.length && histParts[0].role === "model") histParts.shift();
   const contents = [...histParts, { role: "user", parts: [{ text: userMessage }] }];
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+
+  // Try cached model first, then fall through full list
+  const cached = LS.get(KEY_GEMINI_MODEL, null);
+  const modelsToTry = cached
+    ? [cached, ...GEMINI_MODELS.filter(m => m !== cached)]
+    : GEMINI_MODELS;
+
+  let lastErr = "";
+  for (const model of modelsToTry) {
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            contents,
-            generationConfig: { maxOutputTokens: maxTokens },
-          }),
-        }
-      );
+      const res = await tryGeminiModel(model, apiKey, body);
+      if (res.status === 404) continue; // model not available, try next
       if (!res.ok) {
-        let errMsg = `Gemini API 錯誤 (HTTP ${res.status})`;
-        try { const j = await res.json(); errMsg = `Gemini: ${j.error?.message || j.error?.status || res.status}`; } catch {}
-        if (attempt === 0) { await new Promise(r => setTimeout(r, 1200)); continue; }
-        throw new Error(errMsg);
+        const j = await res.json().catch(() => ({}));
+        lastErr = j.error?.message || `HTTP ${res.status}`;
+        // On quota/auth errors, don't try other models — it's a key issue
+        if (res.status === 401 || res.status === 403) break;
+        if (res.status === 429) { lastErr = `配額已用盡 (${model})，請稍後再試或檢查帳單設定`; continue; }
+        break;
       }
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error("Gemini 回傳空白結果，請稍後再試");
+      if (!text) { lastErr = "Gemini 回傳空白結果，請稍後再試"; break; }
+      // Cache the working model
+      LS.set(KEY_GEMINI_MODEL, model);
       return text;
     } catch (e) {
-      if (attempt === 0) { await new Promise(r => setTimeout(r, 1200)); continue; }
-      throw e;
+      lastErr = e.message;
     }
   }
-  throw new Error("連線失敗，請確認 Gemini API Key 正確並重試");
+  throw new Error(lastErr || "無法連線到 Gemini，請確認 API Key 正確並重試");
 }
 
 // Parse Gemini JSON response safely
