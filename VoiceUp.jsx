@@ -1701,10 +1701,59 @@ function QuizModal({ mode, library, allTags, onClose }) {
   const [detected,     setDetected]     = useState(() => new Set());
   const [hintsGiven,   setHintsGiven]   = useState(() => ({}));
   const [chatHistory,  setChatHistory]  = useState([]);
-  const [dialogInput,  setDialogInput]  = useState("");
-  const [dialogBusy,   setDialogBusy]   = useState(false);
-  const [dialogDone,   setDialogDone]   = useState(false);
+  const [dialogInput,    setDialogInput]    = useState("");
+  const [dialogBusy,     setDialogBusy]     = useState(false);
+  const [dialogDone,     setDialogDone]     = useState(false);
+  const [quizListening,  setQuizListening]  = useState(false);
+  const [quizInterim,    setQuizInterim]    = useState("");
+  const quizRecogRef = useRef(null);
   const chatEndRef = useRef(null);
+
+  // ── Quiz voice input (same Azure SDK as PracticePage) ──────────────────
+  const startQuizMic = useCallback(async () => {
+    const azureKey    = LS.get(KEY_AZURE_KEY, "");
+    const azureRegion = LS.get(KEY_AZURE_REGION, "eastasia");
+    if (!azureKey) { alert("請先在設定頁面填入 Azure Speech Key。"); return; }
+    if (!window.SpeechSDK) {
+      const urls = [
+        "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+        "https://unpkg.com/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
+      ];
+      let ok = false;
+      for (const url of urls) {
+        try { await new Promise((res, rej) => { const s = document.createElement("script"); s.src = url; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); ok = true; break; } catch {}
+      }
+      if (!ok) { alert("無法載入語音 SDK，請確認網路連線正常。"); return; }
+    }
+    const SDK = window.SpeechSDK;
+    const config = SDK.SpeechConfig.fromSubscription(azureKey, azureRegion);
+    config.speechRecognitionLanguage = "en-US";
+    const recognizer = new SDK.SpeechRecognizer(config, SDK.AudioConfig.fromDefaultMicrophoneInput());
+    quizRecogRef.current = recognizer;
+    recognizer.recognizing = (_, e) => setQuizInterim(e.result.text);
+    recognizer.recognized  = (_, e) => {
+      if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) {
+        setDialogInput(prev => (prev ? prev + " " : "") + e.result.text);
+        setQuizInterim("");
+        stopQuizMic();
+      }
+    };
+    recognizer.canceled = (_, e) => {
+      stopQuizMic();
+      if (e?.errorDetails?.includes("401") || e?.errorDetails?.includes("Unauthorized"))
+        alert("Azure Key 驗證失敗，請至設定頁面確認 Key 與 Region。");
+    };
+    recognizer.startContinuousRecognitionAsync(() => setQuizListening(true), err => { console.error(err); setQuizListening(false); });
+  }, []);
+
+  const stopQuizMic = useCallback(() => {
+    if (quizRecogRef.current) {
+      quizRecogRef.current.stopContinuousRecognitionAsync(
+        () => { setQuizListening(false); setQuizInterim(""); quizRecogRef.current = null; },
+        () => { setQuizListening(false); setQuizInterim(""); quizRecogRef.current = null; }
+      );
+    } else { setQuizListening(false); setQuizInterim(""); }
+  }, []);
 
   const eligible = library.filter(it =>
     selectedTag === "全部" || (it.tags || []).includes(selectedTag)
@@ -2115,21 +2164,47 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
 
           {/* Input */}
           {!dialogDone && (
-            <div className="dialog-quiz-input">
-              <textarea
-                className="input-field-text"
-                value={dialogInput}
-                onChange={e => setDialogInput(e.target.value)}
-                onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendDialogMessage(); } }}
-                placeholder="用英文回應，Enter 送出..."
-                rows={1} style={{flex:1,resize:"none",minHeight:44,maxHeight:100}}
-                disabled={dialogBusy}
-              />
-              <button className="send-btn" onClick={sendDialogMessage} disabled={!dialogInput.trim()||dialogBusy}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:18,height:18}}>
-                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-              </button>
+            <div className="dialog-quiz-input" style={{flexDirection:"column",gap:6}}>
+              {quizInterim && (
+                <div style={{fontSize:13,color:"var(--amber-dim)",fontStyle:"italic",padding:"4px 6px",
+                  background:"rgba(232,164,74,0.08)",borderRadius:8,border:"1.5px dashed rgba(232,164,74,0.4)"}}>
+                  🎙 {quizInterim}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                <button
+                  onClick={() => quizListening ? stopQuizMic() : startQuizMic()}
+                  disabled={dialogBusy}
+                  style={{
+                    width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,cursor:"pointer",
+                    background: quizListening ? "var(--red)" : "var(--blue-light)",
+                    color: quizListening ? "white" : "var(--blue)",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    boxShadow: quizListening ? "0 0 0 3px rgba(240,84,79,0.25)" : "none",
+                    transition:"all 0.2s",
+                  }}
+                  title={quizListening ? "點擊停止" : "語音輸入"}
+                >
+                  {quizListening
+                    ? <svg viewBox="0 0 24 24" fill="currentColor" style={{width:18,height:18}}><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                    : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{width:18,height:18}}><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  }
+                </button>
+                <textarea
+                  className="input-field-text"
+                  value={dialogInput}
+                  onChange={e => setDialogInput(e.target.value)}
+                  onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendDialogMessage(); } }}
+                  placeholder={quizListening ? "🎙 聆聽中..." : "用英文回應，Enter 送出..."}
+                  rows={1} style={{flex:1,resize:"none",minHeight:44,maxHeight:100}}
+                  disabled={dialogBusy}
+                />
+                <button className="send-btn" onClick={sendDialogMessage} disabled={!dialogInput.trim()||dialogBusy}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:18,height:18}}>
+                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
       </div>
