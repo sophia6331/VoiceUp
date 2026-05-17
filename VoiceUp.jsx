@@ -4186,7 +4186,8 @@ Reply ONLY with this JSON:
       if (e.result.reason === SDK.ResultReason.RecognizedSpeech && e.result.text) {
         setInterimText("");
         stopListening();
-        sendMessage(e.result.text);
+        // Put text in input box for user to review/edit before sending
+        setTextInput(prev => (prev ? prev + " " : "") + e.result.text);
       }
     };
 
@@ -4343,4 +4344,217 @@ Reply ONLY with this JSON:
                 <button
                   className="btn btn-primary"
                   style={{padding:"5px 10px",fontSize:11,flexShrink:0,marginTop:-2}}
-                  onClick={() => { if (!isP
+                  onClick={() => { if (!isProcessing) { sendMessage(currentHints.hint3, true); setHintLevel(null); } }}
+                  disabled={isProcessing}
+                  title="直接送出此示範句"
+                >
+                  ✈ 送出
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Interim status */}
+        {isListening && (
+          <div className="interim-strip">
+            {interimText ? `聽到：${interimText}` : "🎙️ 聆聽中，請開口說英文..."}
+          </div>
+        )}
+
+        {/* Input row */}
+        <div className="input-row">
+          {/* Mic button */}
+          <div style={{position:"relative",flexShrink:0}}>
+            <button
+              className={`mic-btn ${isProcessing ? "processing" : isListening ? "listening" : "idle"}`}
+              onClick={hasAzure ? toggleMic : undefined}
+              disabled={isProcessing || !hasAzure}
+              title={!hasAzure ? "請在設定頁面填入 Azure Speech Key 以啟用語音輸入" : isListening ? "點擊停止錄音" : "點擊開始語音輸入"}
+              style={!hasAzure ? {opacity:0.35,cursor:"not-allowed"} : {}}
+            >
+              {isProcessing
+                ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:20,height:20}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                : isListening
+                  ? <svg viewBox="0 0 24 24" fill="currentColor" style={{width:18,height:18}}><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:20,height:20}}><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M19 10a7 7 0 01-14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+              }
+            </button>
+            {!hasAzure && (
+              <div style={{position:"absolute",top:-6,right:-6,width:16,height:16,background:"var(--amber)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#1A1714",border:"2px solid var(--bg-card)"}}>
+                !
+              </div>
+            )}
+          </div>
+
+          {/* Text input — voice result appears here for review before sending */}
+          <textarea
+            className="text-input-box"
+            value={textInput}
+            onChange={e => setTextInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (textInput.trim()) { sendMessage(textInput); setTextInput(""); }
+              }
+            }}
+            placeholder={isListening ? "🎙️ 語音辨識中，說完後確認再送出..." : !hasAzure ? "用文字練習（無 Azure Key，語音功能停用）" : "打字或語音輸入，Enter 送出"}
+            disabled={isProcessing}
+            rows={1}
+          />
+
+          {/* Send button */}
+          <button
+            className="send-btn"
+            disabled={!textInput.trim() || isProcessing}
+            onClick={() => { if (textInput.trim()) { sendMessage(textInput); setTextInput(""); } }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:18,height:18}}>
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Transcript modal */}
+      {showTranscript && (
+        <TranscriptModal
+          messages={messages}
+          initialSavedIds={savedMsgIds}
+          initialEntryMap={savedEntryMap}
+          onClose={() => { setShowTranscript(false); onBack(); }}
+        />
+      )}
+
+      {/* Save sentence modal */}
+      {saveTarget && (
+        <SaveSentenceModal
+          sentence={saveTarget.sentence || saveTarget}
+          originalSentence={saveTarget.original || null}
+          onSaved={(entryId) => {
+            if (saveTarget.msgId) {
+              setSavedMsgIds(prev => new Set([...prev, saveTarget.msgId]));
+              setSavedEntryMap(prev => ({...prev, [saveTarget.msgId]: entryId}));
+            }
+          }}
+          onClose={() => setSaveTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function VoiceUp() {
+  const [darkMode,      setDarkMode]      = useState(() => LS.get(KEY_DARK_MODE, false));
+  const [onboarded,     setOnboarded]     = useState(() => LS.get(KEY_ONBOARDED, false));
+  const [tab,           setTab]           = useState("home");
+  const [scenario,      setScenario]      = useState(null);
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [keys,          setKeys]          = useState(() => ({
+    azureKey:    LS.get(KEY_AZURE_KEY,    ""),
+    azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
+    geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
+  }));
+
+  useEffect(() => {
+    let el = document.getElementById("voiceup-styles");
+    if (!el) { el = document.createElement("style"); el.id = "voiceup-styles"; document.head.appendChild(el); }
+    el.textContent = STYLES;
+    let el2 = document.getElementById("voiceup-practice-styles");
+    if (!el2) { el2 = document.createElement("style"); el2.id = "voiceup-practice-styles"; document.head.appendChild(el2); }
+    el2.textContent = PRACTICE_STYLES;
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  if (!onboarded) {
+    return <Onboarding onComplete={() => {
+      setKeys({
+        azureKey:    LS.get(KEY_AZURE_KEY,    ""),
+        azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
+        geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
+      });
+      setOnboarded(true);
+    }} />;
+  }
+
+  const handleStartScenario = (s) => {
+    setScenario(s);
+    setTab("practice");
+  };
+
+  const handleStartCustom = () => {
+    setShowCustomModal(true);
+  };
+
+  const handleCustomStart = ({ aiRole, userRole, context }) => {
+    setShowCustomModal(false);
+    const customScenario = {
+      id: "custom", emoji: "✏️", name: "自訂場景",
+      desc: context, level: "自訂",
+      aiRole, userRole, context, customReady: true,
+    };
+    setScenario(customScenario);
+    setTab("practice");
+  };
+
+  const handleBackFromPractice = () => {
+    setScenario(null);
+    setTab("home");
+  };
+
+  const NAV_ITEMS = [
+    { id: "home",     label: "首頁",   iconComp: Icons.Home },
+    { id: "library",  label: "學習庫", iconComp: Icons.Book },
+    { id: "progress", label: "進度",   iconComp: Icons.Chart },
+    { id: "settings", label: "設定",   iconComp: Icons.Gear },
+  ];
+
+  return (
+    <div className="app-shell">
+      {tab === "home" && <HomePage keys={keys} onStartScenario={handleStartScenario} onStartCustom={handleStartCustom} />}
+      {tab === "library" && <LibraryPage />}
+      {tab === "progress" && <ProgressPage />}
+      {tab === "settings" && (
+        <SettingsPage
+          keys={keys}
+          setKeys={setKeys}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+        />
+      )}
+      {tab === "practice" && scenario && (
+        <PracticePage scenario={scenario} keys={keys} onBack={handleBackFromPractice} />
+      )}
+
+      {showCustomModal && (
+        <CustomScenarioModal
+          onStart={handleCustomStart}
+          onClose={() => setShowCustomModal(false)}
+        />
+      )}
+
+      {tab !== "practice" && (
+        <nav className="bottom-nav">
+          {NAV_ITEMS.map(item => {
+            const isActive = tab === item.id;
+            const IconComp = item.iconComp;
+            return (
+              <button
+                key={item.id}
+                className={`nav-item ${isActive ? "active" : ""}`}
+                onClick={() => setTab(item.id)}
+              >
+                <IconComp active={isActive} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+    </div>
+  );
+}
