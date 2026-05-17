@@ -3421,14 +3421,22 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   throw new Error(lastErr || "無法連線到 Gemini，請確認 API Key 正確並重試");
 }
 
-// Parse Gemini JSON response safely
+// Parse Gemini JSON response safely — handles code blocks, prefix text, etc.
 function parseGeminiJSON(raw) {
+  if (!raw) return null;
+  // 1. Try direct parse first
+  try { return JSON.parse(raw.trim()); } catch {}
+  // 2. Strip markdown code fences then try again
   try {
-    const cleaned = raw.replace(/```json|```/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
+    const stripped = raw.replace(/```json\s*|```\s*/g, "").trim();
+    return JSON.parse(stripped);
+  } catch {}
+  // 3. Extract the first {...} block — handles prose before/after JSON
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+  } catch {}
+  return null;
 }
 
 // Build system prompt per scenario
@@ -3446,7 +3454,12 @@ Stay fully in YOUR character (${scenario.aiRole}) throughout. The user will resp
 
 ${roleDesc}
 
-CRITICAL: Always respond in this EXACT JSON format:
+CRITICAL OUTPUT RULES — MUST FOLLOW EXACTLY:
+- Output ONLY the raw JSON object below. No extra text before or after. No markdown. No code fences.
+- Start your response with { and end with }
+- Never add explanations, greetings, or any text outside the JSON
+
+Required JSON format:
 {
   "reply": "Your conversational response here (1–3 sentences, natural English)",
   "feedback": {
@@ -3457,7 +3470,7 @@ CRITICAL: Always respond in this EXACT JSON format:
   },
   "hint1": "A few keywords for the NEXT conversation turn",
   "hint2": "A sentence frame/template for the next turn",
-  "hint3": "A complete example sentence the user could say next"
+  "hint3": "A complete example sentence the user could say next (MUST differ from previous hints)"
 }
 
 GRAMMAR RULES:
@@ -4083,14 +4096,20 @@ Reply ONLY with this JSON:
 
     try {
       // Build instruction differently for hint-sent messages (skip grading)
+      const prevHintsNote = currentHints?.hint3
+        ? `\n\n[HINT NOTE: You previously suggested hint3="${currentHints.hint3}". Your new hint1/hint2/hint3 MUST be completely different — do not reuse the same sentence or keywords.]`
+        : "";
+
       const instruction = skipFeedback
-        ? `${userText.trim()}\n\n[INTERNAL NOTE: The user used the suggested hint sentence, which is already correct. In your JSON response, set feedback.status to "ok" and original/suggested/reason to null. Do not grade this message.]`
-        : userText.trim();
+        ? `${userText.trim()}\n\n[INTERNAL NOTE: The user used the suggested hint sentence, which is already correct. In your JSON response, set feedback.status to "ok" and original/suggested/reason to null. Do not grade this message.]${prevHintsNote}`
+        : `${userText.trim()}${prevHintsNote}`;
 
       const raw = await callAI(buildSystemPrompt(scenario), geminiHistory, instruction);
       const parsed = parseGeminiJSON(raw);
 
-      const aiText = parsed?.reply || raw;
+      const aiText = parsed?.reply || (parsed === null
+        ? "Sorry, I had trouble formatting my response. Could you repeat that?"
+        : raw);
       const feedback = skipFeedback ? { status: "ok" } : (parsed?.feedback || { status: "ok" });
 
       // Update user msg with feedback
