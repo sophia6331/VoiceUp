@@ -1110,12 +1110,28 @@ function Onboarding({ onComplete }) {
   const [azureKey,    setAzureKey]    = useState("");
   const [azureRegion, setAzureRegion] = useState("eastasia");
   const [geminiKey,   setGeminiKey]   = useState("");
+  const [trialActive, setTrialActive] = useState(null); // null = loading
+
+  // 檢查是否在試用期
+  useEffect(() => {
+    fetch("/api/trial-status")
+      .then(r => r.json())
+      .then(d => {
+        setTrialActive(!!d.trialActive);
+        if (d.azureRegion) setAzureRegion(d.azureRegion);
+      })
+      .catch(() => setTrialActive(false)); // 無法連線 → 當作非試用期
+  }, []);
 
   const handleFinish = () => {
-    LS.set(KEY_AZURE_KEY,    azureKey.trim());
-    LS.set(KEY_AZURE_REGION, azureRegion.trim() || "eastasia");
-    LS.set(KEY_GEMINI_KEY,   geminiKey.trim());
-    LS.set(KEY_ONBOARDED,    true);
+    if (!trialActive) {
+      // 非試用期：存使用者填的 key
+      LS.set(KEY_AZURE_KEY,    azureKey.trim());
+      LS.set(KEY_AZURE_REGION, azureRegion.trim() || "eastasia");
+      LS.set(KEY_GEMINI_KEY,   geminiKey.trim());
+    }
+    // 試用期：不存 key，留空，callAI 和 Azure 會走 proxy
+    LS.set(KEY_ONBOARDED, true);
     if (!LS.get(KEY_JOINED_DATE)) LS.set(KEY_JOINED_DATE, new Date().toISOString().slice(0,10));
     onComplete();
   };
@@ -1145,7 +1161,10 @@ function Onboarding({ onComplete }) {
           <p style={{fontWeight:600,lineHeight:1.7,maxWidth:340}}>
             由 <strong style={{color:"var(--blue-dark)"}}>Sophia</strong> 製作的開源免費 App。
             <br/><br/>
-            輸入你自己的 <strong style={{color:"var(--blue-dark)"}}>Gemini</strong> 與 <strong style={{color:"var(--blue-dark)"}}>Azure 金鑰</strong>即可開始免費使用，金鑰只存在你的裝置，不會上傳任何伺服器。
+            {trialActive
+              ? <><span style={{color:"var(--amber)",fontWeight:700}}>🎁 限時免費試用中！</span><br/>金鑰已預先設定，直接下一步即可開始練習。</>
+              : <>輸入你自己的 <strong style={{color:"var(--blue-dark)"}}>Gemini</strong> 與 <strong style={{color:"var(--blue-dark)"}}>Azure 金鑰</strong>即可開始免費使用，金鑰只存在你的裝置，不會上傳任何伺服器。</>
+            }
           </p>
           <div className="step-dots">
             {[0,1,2,3].map(i => <div key={i} className={`step-dot ${i === step ? "active" : ""}`} />)}
@@ -1177,27 +1196,37 @@ function Onboarding({ onComplete }) {
               <span>Azure Speech 免費方案每月提供 <strong>5 小時</strong>語音辨識額度，個人練習完全夠用。<strong>可略過僅先以打字練習。</strong></span>
             </div>
 
-            <div className="input-group">
-              <div className="input-label">Subscription Key</div>
-              <PasswordField value={azureKey} onChange={setAzureKey} placeholder="貼上 Azure Key..." name="ob_azure_key" />
-              <span className="help-link" onClick={() => window.open("https://portal.azure.com","_blank")}>
-                ↗ 前往 Azure Portal 申請（免費）
-              </span>
-            </div>
-            <div className="input-group">
-              <div className="input-label">Region</div>
-              <input className="input-field" value={azureRegion} onChange={e => setAzureRegion(e.target.value)} placeholder="eastasia" />
-            </div>
+            {trialActive ? (
+              <div className="warning-banner" style={{background:"rgba(232,164,74,0.1)",borderColor:"rgba(232,164,74,0.4)"}}>
+                <span>🎁 <strong>限時免費試用中</strong>，Azure 語音金鑰已預先設定，直接點下一步。</span>
+              </div>
+            ) : (
+              <>
+                <div className="input-group">
+                  <div className="input-label">Subscription Key</div>
+                  <PasswordField value={azureKey} onChange={setAzureKey} placeholder="貼上 Azure Key..." name="ob_azure_key" />
+                  <span className="help-link" onClick={() => window.open("https://portal.azure.com","_blank")}>
+                    ↗ 前往 Azure Portal 申請（免費）
+                  </span>
+                </div>
+                <div className="input-group">
+                  <div className="input-label">Region</div>
+                  <input className="input-field" value={azureRegion} onChange={e => setAzureRegion(e.target.value)} placeholder="eastasia" />
+                </div>
+              </>
+            )}
 
             <div className="step-dots" style={{marginTop:28}}>
               {[0,1,2,3].map(i => <div key={i} className={`step-dot ${i === step ? "active" : ""}`} />)}
             </div>
-            <button className="btn btn-primary btn-full" onClick={() => setStep(3)} disabled={!azureKey.trim()}>
+            <button className="btn btn-primary btn-full" onClick={() => setStep(3)} disabled={!trialActive && !azureKey.trim()}>
               下一步 →
             </button>
-            <button className="btn btn-ghost btn-full" style={{marginTop:10}} onClick={() => setStep(3)}>
-              稍後設定
-            </button>
+            {!trialActive && (
+              <button className="btn btn-ghost btn-full" style={{marginTop:10}} onClick={() => setStep(3)}>
+                稍後設定
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1222,23 +1251,31 @@ function Onboarding({ onComplete }) {
               <span>Gemini API 有免費額度，個人練習用量通常不會超過免費上限。<strong>亦可略過稍後再設定。</strong></span>
             </div>
 
-            <div className="input-group">
-              <div className="input-label">Gemini API Key</div>
-              <PasswordField value={geminiKey} onChange={setGeminiKey} placeholder="貼上 Gemini Key..." name="ob_gemini_key" />
-              <span className="help-link" onClick={() => window.open("https://aistudio.google.com/app/apikey","_blank")}>
-                ↗ 前往 Google AI Studio 取得（免費）
-              </span>
-            </div>
+            {trialActive ? (
+              <div className="warning-banner" style={{background:"rgba(232,164,74,0.1)",borderColor:"rgba(232,164,74,0.4)"}}>
+                <span>🎁 <strong>限時免費試用中</strong>，Gemini AI 金鑰已預先設定，直接點完成即可開始練習！</span>
+              </div>
+            ) : (
+              <div className="input-group">
+                <div className="input-label">Gemini API Key</div>
+                <PasswordField value={geminiKey} onChange={setGeminiKey} placeholder="貼上 Gemini Key..." name="ob_gemini_key" />
+                <span className="help-link" onClick={() => window.open("https://aistudio.google.com/app/apikey","_blank")}>
+                  ↗ 前往 Google AI Studio 取得（免費）
+                </span>
+              </div>
+            )}
 
             <div className="step-dots" style={{marginTop:28}}>
               {[0,1,2,3].map(i => <div key={i} className={`step-dot ${i === step ? "active" : ""}`} />)}
             </div>
             <button className="btn btn-primary btn-full" onClick={handleFinish}>
-              <Icons.Check /> 完成設定，開始練習！
+              <Icons.Check /> {trialActive ? "開始免費試用！" : "完成設定，開始練習！"}
             </button>
-            <button className="btn btn-ghost btn-full" style={{marginTop:10}} onClick={handleFinish}>
-              稍後設定
-            </button>
+            {!trialActive && (
+              <button className="btn btn-ghost btn-full" style={{marginTop:10}} onClick={handleFinish}>
+                稍後設定
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1716,7 +1753,6 @@ function QuizModal({ mode, library, allTags, onClose }) {
   const startQuizMic = useCallback(async () => {
     const azureKey    = LS.get(KEY_AZURE_KEY, "");
     const azureRegion = LS.get(KEY_AZURE_REGION, "eastasia");
-    if (!azureKey) { alert("請先在設定頁面填入 Azure Speech Key。"); return; }
     if (!window.SpeechSDK) {
       const urls = [
         "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
@@ -1729,8 +1765,9 @@ function QuizModal({ mode, library, allTags, onClose }) {
       if (!ok) { alert("無法載入語音 SDK，請確認網路連線正常。"); return; }
     }
     const SDK = window.SpeechSDK;
-    const config = SDK.SpeechConfig.fromSubscription(azureKey, azureRegion);
-    config.speechRecognitionLanguage = "en-US";
+    let config;
+    try { config = await getAzureSpeechConfig(SDK, azureKey, azureRegion); }
+    catch (e) { alert(e.message); return; }
     const recognizer = new SDK.SpeechRecognizer(config, SDK.AudioConfig.fromDefaultMicrophoneInput());
     quizRecogRef.current = recognizer;
     recognizer.recognizing = (_, e) => setQuizInterim(e.result.text);
@@ -1771,7 +1808,6 @@ function QuizModal({ mode, library, allTags, onClose }) {
   const startFlashMic = useCallback(async () => {
     const azureKey    = LS.get(KEY_AZURE_KEY, "");
     const azureRegion = LS.get(KEY_AZURE_REGION, "eastasia");
-    if (!azureKey) { alert("請先在設定頁面填入 Azure Speech Key。"); return; }
     if (!window.SpeechSDK) {
       const urls = [
         "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.42.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js",
@@ -1784,8 +1820,9 @@ function QuizModal({ mode, library, allTags, onClose }) {
       if (!ok) { alert("無法載入語音 SDK，請確認網路連線正常。"); return; }
     }
     const SDK = window.SpeechSDK;
-    const config = SDK.SpeechConfig.fromSubscription(azureKey, azureRegion);
-    config.speechRecognitionLanguage = "en-US";
+    let config;
+    try { config = await getAzureSpeechConfig(SDK, azureKey, azureRegion); }
+    catch (e) { alert(e.message); return; }
     const recognizer = new SDK.SpeechRecognizer(config, SDK.AudioConfig.fromDefaultMicrophoneInput());
     flashRecogRef.current = recognizer;
     recognizer.recognizing = (_, e) => setFlashInterim(e.result.text);
@@ -3365,16 +3402,25 @@ const GEMINI_MODELS = [
 const KEY_GEMINI_MODEL = "vu_gemini_model"; // cached working model
 
 async function tryGeminiModel(model, apiKey, body) {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-  );
-  return res;
+  if (apiKey) {
+    // 使用者自己的 key — 直接打 Gemini
+    return fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+  } else {
+    // 試用模式 — 透過 Vercel Proxy，key 藏在伺服器
+    return fetch("/api/gemini", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, requestBody: body }),
+    });
+  }
 }
 
 async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
   const apiKey = LS.get(KEY_GEMINI_KEY, "");
-  if (!apiKey) throw new Error("未設定 Gemini API Key — 請至設定頁面填入金鑰");
+  // 有自己的 key → 直接用；沒有 → 走 Proxy 試用
 
   // Gemini: contents must alternate user/model, start with user
   const histParts = history
@@ -3402,8 +3448,9 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
       if (res.status === 404) continue; // model not available, try next
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        lastErr = j.error?.message || `HTTP ${res.status}`;
-        // On quota/auth errors, don't try other models — it's a key issue
+        // 試用期結束
+        if (j.error === "TRIAL_ENDED") throw new Error(j.message || "免費試用已結束，請在設定頁面填入您的 Gemini API Key");
+        lastErr = j.error?.message || j.error || `HTTP ${res.status}`;
         if (res.status === 401 || res.status === 403) break;
         if (res.status === 429) { lastErr = `配額已用盡 (${model})，請稍後再試或檢查帳單設定`; continue; }
         break;
@@ -3419,6 +3466,26 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
     }
   }
   throw new Error(lastErr || "無法連線到 Gemini，請確認 API Key 正確並重試");
+}
+
+// Azure Speech Config helper — uses user key OR trial proxy token
+async function getAzureSpeechConfig(SDK, azureKey, azureRegion) {
+  if (azureKey) {
+    const config = SDK.SpeechConfig.fromSubscription(azureKey, azureRegion || "eastasia");
+    config.speechRecognitionLanguage = "en-US";
+    return config;
+  }
+  // Trial mode: fetch temporary token from proxy
+  const res = await fetch("/api/azure-token", { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (err.error === "TRIAL_ENDED") throw new Error(err.message || "免費試用已結束，請在設定頁面填入 Azure Speech Key");
+    throw new Error("無法取得語音授權，請稍後再試");
+  }
+  const { token, region } = await res.json();
+  const config = SDK.SpeechConfig.fromAuthorizationToken(token, region);
+  config.speechRecognitionLanguage = "en-US";
+  return config;
 }
 
 // Parse Gemini JSON response safely — handles code blocks, prefix text, etc.
@@ -4139,11 +4206,6 @@ Reply ONLY with this JSON:
 
   // ── Azure Speech Recognition ──────────────────────────────────────────────────
   const startListening = useCallback(async () => {
-    if (!keys.azureKey) {
-      alert("請先在設定頁面填入 Azure Speech Key。");
-      return;
-    }
-
     // Dynamically load Azure Speech SDK (jsDelivr CDN — more reliable than aka.ms)
     if (!window.SpeechSDK) {
       const SDK_URLS = [
@@ -4171,8 +4233,9 @@ Reply ONLY with this JSON:
     }
 
     const SDK = window.SpeechSDK;
-    const config = SDK.SpeechConfig.fromSubscription(keys.azureKey, keys.azureRegion);
-    config.speechRecognitionLanguage = "en-US";
+    let config;
+    try { config = await getAzureSpeechConfig(SDK, keys.azureKey, keys.azureRegion); }
+    catch (e) { alert(e.message); return; }
 
     const audioConfig = SDK.AudioConfig.fromDefaultMicrophoneInput();
     const recognizer  = new SDK.SpeechRecognizer(config, audioConfig);
