@@ -1129,8 +1129,11 @@ function Onboarding({ onComplete }) {
       LS.set(KEY_AZURE_KEY,    azureKey.trim());
       LS.set(KEY_AZURE_REGION, azureRegion.trim() || "eastasia");
       LS.set(KEY_GEMINI_KEY,   geminiKey.trim());
+      LS.set("vu_trial_mode",  false);
+    } else {
+      // 試用期：不存 key，留空，記下試用旗標
+      LS.set("vu_trial_mode", true);
     }
-    // 試用期：不存 key，留空，callAI 和 Azure 會走 proxy
     LS.set(KEY_ONBOARDED, true);
     if (!LS.get(KEY_JOINED_DATE)) LS.set(KEY_JOINED_DATE, new Date().toISOString().slice(0,10));
     onComplete();
@@ -1284,7 +1287,7 @@ function Onboarding({ onComplete }) {
 }
 
 // ─── Home Page ────────────────────────────────────────────────────────────────
-function HomePage({ keys, onStartScenario, onStartCustom }) {
+function HomePage({ keys, trialMode, onStartScenario, onStartCustom }) {
   const streakDays = LS.get(KEY_STREAK_DAYS, []);
   const stats      = LS.get(KEY_STATS, { savedSentences: 0, sessions: 0 });
   const hasKeys    = keys.azureKey; // Azure optional; AI uses built-in Claude API
@@ -1314,7 +1317,7 @@ function HomePage({ keys, onStartScenario, onStartCustom }) {
         <div style={{fontSize:13,color:"var(--text-2)",fontWeight:600}}>選一個場景，開口練習吧！</div>
       </div>
 
-      {!hasKeys && (
+      {!hasKeys && !trialMode && (
         <div className="warning-banner" style={{marginBottom:20}}>
           <Icons.Warning />
           <span>還沒設定 API 金鑰，部分功能無法使用。請前往<strong>設定</strong>頁面完成設定。</span>
@@ -1520,7 +1523,7 @@ function ProgressPage() {
 }
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
-function SettingsPage({ keys, setKeys, darkMode, setDarkMode }) {
+function SettingsPage({ keys, setKeys, darkMode, setDarkMode, trialMode }) {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showResetApp, setShowResetApp] = useState(false);
@@ -1543,11 +1546,13 @@ function SettingsPage({ keys, setKeys, darkMode, setDarkMode }) {
     <div style={{marginBottom:8}}>
       <div style={{fontSize:13,fontWeight:500,marginBottom:3}}>{label}</div>
       <div className="key-status">
-        <div className={`key-dot ${value ? "set" : "unset"}`} />
+        <div className={`key-dot ${(value || trialMode) ? "set" : "unset"}`} />
         <span style={{fontSize:12,color:"var(--text-2)"}}>
           {value
             ? `已設定（${value.slice(0,6)}...${value.slice(-4)}）`
-            : "尚未設定"}
+            : trialMode
+              ? "✦ 限時免費試用中"
+              : "尚未設定"}
         </span>
       </div>
     </div>
@@ -1560,17 +1565,25 @@ function SettingsPage({ keys, setKeys, darkMode, setDarkMode }) {
 
       <div className="section-label" style={{marginTop:0}}>API 金鑰狀態</div>
       <div className="settings-section">
-        <div className="settings-row" onClick={() => setShowKeyModal(true)}>
+        <div className="settings-row" onClick={trialMode ? undefined : () => setShowKeyModal(true)}
+          style={trialMode ? {cursor:"default"} : {}}>
           <div className="settings-row-left">
             <div className="settings-row-title">🔑 管理 API 金鑰</div>
+            {trialMode && (
+              <div style={{fontSize:11,color:"var(--amber)",fontWeight:600,marginTop:4}}>
+                🎁 限時免費試用中，金鑰已由系統提供
+              </div>
+            )}
             <div style={{marginTop:8}}>
               <KeyStatus label="Azure Speech" value={keys.azureKey} />
               <KeyStatus label="Gemini API"   value={keys.geminiKey} />
             </div>
           </div>
-          <div className="settings-row-right">
-            編輯 <Icons.ChevronRight />
-          </div>
+          {!trialMode && (
+            <div className="settings-row-right">
+              編輯 <Icons.ChevronRight />
+            </div>
+          )}
         </div>
       </div>
 
@@ -4027,7 +4040,7 @@ function TranscriptModal({ messages, initialSavedIds, initialEntryMap, onClose }
 }
 
 // ─── Practice Page (FULL) ─────────────────────────────────────────────────────
-function PracticePage({ scenario, keys, onBack }) {
+function PracticePage({ scenario, keys, trialMode, onBack }) {
   const [messages,      setMessages]      = useState([]);
   const [isListening,   setIsListening]   = useState(false);
   const [isProcessing,  setIsProcessing]  = useState(false);
@@ -4310,7 +4323,7 @@ Reply ONLY with this JSON:
 
   // AI now uses Claude built-in API — no external key needed
   // Azure is optional (enables voice; text-only mode without it)
-  const hasAzure = !!keys.azureKey;
+  const hasAzure = !!keys.azureKey || !!trialMode;
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -4519,6 +4532,8 @@ export default function VoiceUp() {
     azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
     geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
   }));
+  // 試用模式：從 localStorage 讀取，並在背景向伺服器驗證
+  const [trialMode, setTrialMode] = useState(() => !!LS.get("vu_trial_mode", false));
 
   useEffect(() => {
     let el = document.getElementById("voiceup-styles");
@@ -4532,6 +4547,18 @@ export default function VoiceUp() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  // 每次啟動都向伺服器確認試用期是否仍有效
+  useEffect(() => {
+    fetch("/api/trial-status")
+      .then(r => r.json())
+      .then(d => {
+        const active = !!d.trialActive;
+        setTrialMode(active);
+        LS.set("vu_trial_mode", active);
+      })
+      .catch(() => {}); // 離線或非 Vercel 環境，維持 localStorage 值
+  }, []);
 
   if (!onboarded) {
     return <Onboarding onComplete={() => {
@@ -4578,7 +4605,7 @@ export default function VoiceUp() {
 
   return (
     <div className="app-shell">
-      {tab === "home" && <HomePage keys={keys} onStartScenario={handleStartScenario} onStartCustom={handleStartCustom} />}
+      {tab === "home" && <HomePage keys={keys} trialMode={trialMode} onStartScenario={handleStartScenario} onStartCustom={handleStartCustom} />}
       {tab === "library" && <LibraryPage />}
       {tab === "progress" && <ProgressPage />}
       {tab === "settings" && (
@@ -4587,10 +4614,11 @@ export default function VoiceUp() {
           setKeys={setKeys}
           darkMode={darkMode}
           setDarkMode={setDarkMode}
+          trialMode={trialMode}
         />
       )}
       {tab === "practice" && scenario && (
-        <PracticePage scenario={scenario} keys={keys} onBack={handleBackFromPractice} />
+        <PracticePage scenario={scenario} keys={keys} trialMode={trialMode} onBack={handleBackFromPractice} />
       )}
 
       {showCustomModal && (
