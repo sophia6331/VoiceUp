@@ -324,6 +324,46 @@ const STYLES = `
   }
   .btn-outline:hover { background: var(--blue-light); }
 
+  /* Icon-card buttons (學習庫 字卡練習 / 情境對話考驗) */
+  .quiz-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease, border-color 0.18s ease;
+    font-family: 'Nunito', sans-serif;
+  }
+  .quiz-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(59,139,235,0.18); }
+  .quiz-card:active { transform: translateY(0) scale(0.98); }
+
+  .quiz-card-badge {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: #fff;
+  }
+  .quiz-card-badge svg { width: 20px; height: 20px; }
+  .quiz-card-badge.blue {
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-dark) 100%);
+    box-shadow: 0 4px 10px rgba(59,139,235,0.35);
+  }
+  .quiz-card-badge.yellow {
+    background: linear-gradient(135deg, var(--yellow) 0%, var(--yellow-dim) 100%);
+    box-shadow: 0 4px 10px rgba(245,166,35,0.4);
+  }
+  .quiz-card:hover .quiz-card-badge { transform: scale(1.05); transition: transform 0.2s; }
+
+  .quiz-card-text { display: flex; flex-direction: column; min-width: 0; }
+  .quiz-card-title { font-size: 14px; font-weight: 800; color: var(--text); line-height: 1.15; }
+  .quiz-card-sub   { font-size: 10px; color: var(--text-3); font-weight: 800; margin-top: 3px; letter-spacing: 0.08em; }
+
   .btn-yellow {
     background: linear-gradient(135deg, var(--yellow) 0%, var(--yellow-dim) 100%);
     color: white;
@@ -2647,17 +2687,39 @@ function LibraryPage() {
 
       {/* Quiz actions */}
       {library.length >= 3 && (
-        <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <div style={{display:"flex",gap:10,marginBottom:14}}>
           <button
-            className="btn btn-outline"
-            style={{flex:1,padding:"10px 8px",fontSize:12}}
+            className="quiz-card"
+            style={{flex:1}}
             onClick={() => setQuizMode("flashcard")}
-          >🃏 字卡練習</button>
+          >
+            <span className="quiz-card-badge blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="3"/>
+                <line x1="7" y1="10" x2="14" y2="10"/>
+                <line x1="7" y1="14" x2="11" y2="14"/>
+              </svg>
+            </span>
+            <span className="quiz-card-text">
+              <span className="quiz-card-title">字卡練習</span>
+              <span className="quiz-card-sub">FLASHCARD</span>
+            </span>
+          </button>
           <button
-            className="btn btn-outline"
-            style={{flex:1,padding:"10px 8px",fontSize:12}}
+            className="quiz-card"
+            style={{flex:1}}
             onClick={() => setQuizMode("dialog")}
-          >💬 情境對話考驗</button>
+          >
+            <span className="quiz-card-badge yellow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+              </svg>
+            </span>
+            <span className="quiz-card-text">
+              <span className="quiz-card-title">情境對話考驗</span>
+              <span className="quiz-card-sub">DIALOGUE</span>
+            </span>
+          </button>
         </div>
       )}
 
