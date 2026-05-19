@@ -1920,7 +1920,15 @@ Reply with ONLY the opening line (1-2 sentences, plain text, no JSON).`,
         `Target sentence: "${current.english}"
 User's answer: "${userAnswer}"
 
-Judge if the user's answer expresses the SAME MEANING. Different wording, grammar variation, or paraphrasing is fine — be lenient and generous.
+Judge the user's answer by TWO criteria — BOTH must pass to be correct:
+1. MEANING: Does the answer express the same meaning as the target? Paraphrasing and different wording are acceptable.
+2. GRAMMAR: Is the answer grammatically correct? Any clear grammar error (wrong verb form, subject-verb disagreement, wrong tense, etc.) = FAIL.
+
+Rules:
+- correct: true ONLY if BOTH meaning AND grammar are correct.
+- correct: false if the meaning is wrong OR if there is any grammar error.
+- In the "note" field, write in 繁體中文: if correct, give brief encouragement; if wrong meaning, explain; if grammar error, clearly point out the grammar mistake and show the corrected form.
+
 Output ONLY this JSON (nothing else):
 {"correct":true,"note":"繁體中文簡短評語"}`
       );
@@ -2067,7 +2075,7 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
         <div className="modal-desc">
           {isDialog
             ? "AI 開啟一段真實對話。你在對話中自然用出你的學習庫句子——不用死背，考的是你能不能在情境中活用。"
-            : "看中文翻譯，用英文說出或打出來。AI 寬鬆判斷語意是否正確。"}
+            : "看中文翻譯，用英文說出或打出來。語意正確且文法正確才算過。"}
         </div>
 
         <div className="input-group">
