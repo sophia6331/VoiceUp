@@ -1915,16 +1915,18 @@ Reply with ONLY the opening line (1-2 sentences, plain text, no JSON).`,
     setJudging(true);
     try {
       const raw = await callAI(
-        "You judge English translation answers. Output only valid JSON, no markdown.",
+        `You judge English translation exercises. CRITICAL: output ONLY a raw JSON object. Start with { and end with }. No markdown, no explanation, no code fences.`,
         [],
         `Target sentence: "${current.english}"
 User's answer: "${userAnswer}"
 
-Judge if the user's answer expresses the SAME MEANING. Different wording is OK if meaning is the same. Be lenient.
-Reply: {"correct":true|false,"note":"1-2 sentences in 繁體中文 explaining the result and any improvement tips"}`
+Judge if the user's answer expresses the SAME MEANING. Different wording, grammar variation, or paraphrasing is fine — be lenient and generous.
+Output ONLY this JSON (nothing else):
+{"correct":true,"note":"繁體中文簡短評語"}`
       );
       const parsed = parseGeminiJSON(raw);
-      const fb = parsed || { correct: false, note: "無法判斷，請手動評分。" };
+      const fb = parsed?.note !== undefined ? parsed : null;
+      if (!fb) { setFeedback({ correct: false, note: "判斷失敗，請重試。" }); setJudging(false); return; }
       setFeedback(fb);
       setResults(prev => [...prev, { question: current, userAnswer, correct: fb.correct, note: fb.note }]);
       const lib = (LS.get(KEY_LIBRARY, []) || []).map(it =>
@@ -1971,24 +1973,30 @@ Reply: {"correct":true|false,"note":"1-2 sentences in 繁體中文 explaining th
         newHistory.filter(m => m.role === "user").length > (detectedIds.size + 1) * 2
       );
 
-      const systemPrompt = `You are conducting a natural English conversation to assess the user's ability to use specific sentences.
+      const systemPrompt = `You are conducting a natural English conversation to assess a Taiwanese learner's ability to use specific sentences.
 
 Remaining target sentences to detect: ${targetList || "(all detected — wrap up the conversation)"}
 Already detected: ${targets.filter(t => detected.has(t.id)).map(t => t.english).join(", ") || "none yet"}
 
 RULES:
 1. Continue the conversation naturally and engagingly (1-3 sentences).
-2. Check if the user's latest message semantically matches any remaining target sentence. Be lenient — similar meaning counts.
-3. If all targets are detected, set "allDone": true in your response.
-4. If a target has gone undetected for a while, you may gently steer the conversation toward a situation where it's natural to use it — but NEVER quote the target sentence directly.
-5. If you give a hint, increment hint count.
+2. Check if the user's latest message semantically matches any remaining target. Be lenient.
+3. Also give brief grammar feedback on the user's message (like a language teacher).
+4. If all targets are detected, set "allDone": true.
+5. Steer conversation gently toward undetected targets without quoting them directly.
 
-Reply ONLY with valid JSON:
+CRITICAL OUTPUT: Start with { and end with }. No markdown, no code fences, no text outside JSON.
 {
-  "reply": "your conversational response (plain English)",
-  "detectedIds": [list of [ID:xxx] ids just detected in this message, or []],
+  "reply": "your conversational response in English (1-3 sentences)",
+  "feedback": {
+    "status": "ok" | "suggestion" | "error",
+    "original": "user's exact phrase if issue found, else null",
+    "suggested": "better version, else null",
+    "reason": "繁體中文簡短說明，最多20字，null if ok"
+  },
+  "detectedIds": [],
   "allDone": false,
-  "hintGiven": null or the id of the target you hinted at
+  "hintGiven": null
 }`;
 
       const raw = await callAI(systemPrompt, [], `User said: "${userText}"
@@ -1996,7 +2004,22 @@ Reply ONLY with valid JSON:
 Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
       const parsed = parseGeminiJSON(raw);
 
-      if (parsed) {
+      if (parsed?.reply) {
+        // Grammar feedback on user message
+        if (parsed.feedback && parsed.feedback.status !== "ok") {
+          setChatHistory(prev => prev.map((m, i) =>
+            i === prev.length - 1 && m.role === "user"
+              ? { ...m, feedback: parsed.feedback }
+              : m
+          ));
+        } else {
+          setChatHistory(prev => prev.map((m, i) =>
+            i === prev.length - 1 && m.role === "user"
+              ? { ...m, feedback: { status: "ok" } }
+              : m
+          ));
+        }
+
         // Process detected targets
         if (parsed.detectedIds?.length) {
           parsed.detectedIds.forEach(raw_id => {
@@ -2012,14 +2035,15 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
           setHintsGiven(newHints);
         }
 
-        const aiMsg = { role: "ai", text: parsed.reply || "..." };
+        const aiMsg = { role: "ai", text: parsed.reply };
         setChatHistory(prev => [...prev, aiMsg]);
 
         if (parsed.allDone || detectedIds.size >= targets.length) {
           setDialogDone(true);
         }
       } else {
-        setChatHistory(prev => [...prev, { role: "ai", text: raw.trim() }]);
+        // parsing failed — show safe fallback, never raw JSON
+        setChatHistory(prev => [...prev, { role: "ai", text: "Sorry, could you say that again?" }]);
       }
     } catch {
       setChatHistory(prev => [...prev, { role: "ai", text: "Hmm, let me think... Could you say that again?" }]);
@@ -2268,6 +2292,21 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
                         ✓ 用出：{msg.detectedTarget}
                       </div>
                     )}
+                  {isUser && msg.feedback && msg.feedback.status !== "ok" && (
+                    <div style={{
+                      marginTop:6,padding:"6px 8px",borderRadius:8,fontSize:11,lineHeight:1.5,
+                      background: msg.feedback.status === "error" ? "rgba(224,90,90,0.15)" : "rgba(59,139,235,0.12)",
+                      color: msg.feedback.status === "error" ? "var(--red)" : "var(--blue-dark)",
+                      borderLeft: `3px solid ${msg.feedback.status === "error" ? "var(--red)" : "var(--blue)"}`,
+                    }}>
+                      {msg.feedback.status === "error" ? "✗ " : "💡 "}
+                      {msg.feedback.suggested && <><span style={{textDecoration:"line-through",opacity:0.7}}>{msg.feedback.original}</span> → <strong>{msg.feedback.suggested}</strong><br/></>}
+                      {msg.feedback.reason}
+                    </div>
+                  )}
+                  {isUser && msg.feedback?.status === "ok" && (
+                    <div style={{fontSize:10,color:"rgba(26,23,20,0.55)",marginTop:3}}>✅ 表達自然</div>
+                  )}
                   </div>
                 </div>
               );
@@ -3550,7 +3589,7 @@ Required JSON format:
   },
   "hint1": "A few keywords for the NEXT conversation turn",
   "hint2": "A sentence frame/template for the next turn",
-  "hint3": "A complete example sentence the user could say next (MUST differ from previous hints)"
+  "hint3": "A complete example STATEMENT the user could say next — NEVER a question, NEVER something the AI would say, always from the user's perspective. Must differ from previous hints."
 }
 
 GRAMMAR RULES:
@@ -3614,7 +3653,7 @@ function SaveSentenceModal({ sentence, originalSentence, onClose, onSaved }) {
       "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind (no 「」 \" \' or any brackets). Just the plain Chinese translation.",
       [],
       english,
-      120
+      250
     )
       .then(t => { t = (t || "").replace(/^[「『\"\u201C]+|[」』\"\u201D]+$/g, "").trim(); setChinese(t); })
       .catch(() => {})
@@ -3676,7 +3715,7 @@ function SaveSentenceModal({ sentence, originalSentence, onClose, onSaved }) {
                     "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind. Just the plain Chinese translation.",
                     [],
                     english,
-                    120
+                    250
                   )
                     .then(t => { t = (t || "").replace(/^[「『"\'\u201C]+|[」』"\'\u201D]+$/g, "").trim(); setChinese(t); })
                     .catch(() => {})
