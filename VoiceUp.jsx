@@ -2029,7 +2029,9 @@ Already detected: ${targets.filter(t => detected.has(t.id)).map(t => t.english).
 RULES:
 1. Continue the conversation naturally and engagingly (1-3 sentences).
 2. Check if the user's latest message semantically matches any remaining target. Be lenient.
-3. Also give brief grammar feedback on the user's message (like a language teacher).
+3. Give grammar feedback based on the CONTEXT of the conversation:
+   - If the conversation topic is professional/business/workplace: apply professional standards — flag sentences that are grammatically correct but too brief, choppy, or informal for the workplace context. A short answer like "Yes, I can. I finished it." in a business discussion should be flagged as a "suggestion" with a more complete, fluent professional version.
+   - If the conversation topic is casual/everyday: short and simple is fine — only flag actual grammar errors or clearly unnatural phrasing.
 4. If all targets are detected, set "allDone": true.
 5. Steer conversation gently toward undetected targets without quoting them directly.
 
@@ -3628,6 +3630,12 @@ function parseGeminiJSON(raw) {
   return null;
 }
 
+// Determine if a scenario calls for professional/formal English standards
+function isFormalScenario(scenario) {
+  const formalIds = ["meeting", "interview", "pitch", "client", "debate"];
+  return formalIds.includes(scenario.id);
+}
+
 // Build system prompt per scenario
 function buildSystemPrompt(scenario) {
   const roleDesc = scenario.id === "custom"
@@ -3638,6 +3646,31 @@ function buildSystemPrompt(scenario) {
 
 Stay fully in YOUR character (${scenario.aiRole}) throughout. The user will respond as ${scenario.userRole}. NEVER swap roles. The hints you provide (hint1/hint2/hint3) must be what THE USER (${scenario.userRole}) would say in response to you, NOT what you (${scenario.aiRole}) would say.`
     : `ROLE: ${scenario.desc}. Keep your responses natural, conversational, and engaging.`;
+
+  const formal = isFormalScenario(scenario);
+
+  const grammarRules = formal
+    ? `GRAMMAR FEEDBACK RULES — PROFESSIONAL CONTEXT:
+This is a "${scenario.name}" scenario. Apply PROFESSIONAL/BUSINESS ENGLISH standards.
+A response is only "ok" if it is BOTH grammatically correct AND appropriately professional in register and completeness.
+
+- "ok": correct grammar + natural professional phrasing (complete thoughts, appropriate formality, fluent connectors)
+- "suggestion": grammatically correct BUT too brief, too simple, or insufficiently professional for the workplace — for example: very short answers where elaboration is expected, missing linking phrases, overly blunt or choppy phrasing, or informal shortcuts that a native professional would not use in this context. Provide a fuller, more fluent professional version.
+- "error": clear grammar mistake (wrong tense, subject-verb disagreement, wrong preposition, missing article, etc.)
+
+Example — Team Meeting:
+User says: "Yes, I can. I finished the research. Now I am doing the prototype."
+→ Grammatically fine but too fragmented and informal for a meeting update.
+→ status: "suggestion", suggested: "Yes, I can give you that update. I've just completed the research phase and I'm now moving into prototype development, which is currently on schedule."
+
+Be honest: in professional contexts, short choppy sentences are a real weakness worth flagging.`
+    : `GRAMMAR FEEDBACK RULES — CASUAL CONTEXT:
+This is a "${scenario.name}" scenario. Apply CONVERSATIONAL ENGLISH standards.
+Short, simple, direct answers are natural and perfectly acceptable in casual settings.
+
+- "ok": grammatically correct and sounds natural for casual conversation (brief answers are fine)
+- "suggestion": grammatically correct but there's a clearly more idiomatic or natural-sounding way to say it
+- "error": clear grammar mistake`;
 
   return `You are an English conversation partner helping a Taiwanese intermediate-to-advanced English learner (B1–C1) practice speaking in a "${scenario.name}" scenario.
 
@@ -3662,10 +3695,7 @@ Required JSON format:
   "hint3": "A complete example STATEMENT the user could say next — NEVER a question, NEVER something the AI would say, always from the user's perspective. Must differ from previous hints."
 }
 
-GRAMMAR RULES:
-- "ok": sentence is correct and natural
-- "suggestion": grammatically correct but unnatural / there's a more idiomatic way  
-- "error": clear grammar mistake
+${grammarRules}
 
 Keep feedback concise. Reason in Traditional Chinese (繁體中文), max 30 characters.
 Reply content must be English only.
