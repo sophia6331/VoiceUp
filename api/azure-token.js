@@ -6,7 +6,8 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const trialActive = process.env.TRIAL_ACTIVE !== "false";
+  // TRIAL_ACTIVE=true → 開放；未設定或其他值 → 關閉
+  const trialActive = process.env.TRIAL_ACTIVE === "true";
   if (!trialActive) {
     return res.status(403).json({
       error: "TRIAL_ENDED",

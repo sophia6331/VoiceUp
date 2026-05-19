@@ -16,8 +16,8 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   // ── 試用期檢查 ─────────────────────────────────────────────────────────────
-  // 在 Vercel 後台把 TRIAL_ACTIVE 設為 false 即可關閉試用期
-  const trialActive = process.env.TRIAL_ACTIVE !== "false";
+  // TRIAL_ACTIVE=true → 開放；未設定或其他值 → 關閉
+  const trialActive = process.env.TRIAL_ACTIVE === "true";
   if (!trialActive) {
     return res.status(403).json({
       error: "TRIAL_ENDED",
