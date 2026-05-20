@@ -710,6 +710,28 @@ const STYLES = `
     to   { transform: translateY(0); opacity: 1; }
   }
 
+  /* Desktop: center modal with max-width instead of full-width bottom sheet */
+  @media (min-width: 640px) {
+    .modal-overlay {
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-sheet {
+      border-radius: 20px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 88vh;
+      border-top: none;
+      border: 1.5px solid var(--border);
+      box-shadow: 0 24px 64px rgba(13,27,46,0.28);
+      animation: scaleIn 0.28s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    @keyframes scaleIn {
+      from { transform: scale(0.94); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+  }
+
   .modal-handle {
     width: 44px; height: 5px;
     background: var(--border);
@@ -2177,8 +2199,8 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
     if (!current) return null;
     return (
       <Portal>
-      <div className="modal-overlay" style={{alignItems:"stretch"}}>
-        <div className="modal-sheet" style={{display:"flex",flexDirection:"column",maxHeight:"100vh"}}>
+      <div className="modal-overlay">
+        <div className="modal-sheet" style={{display:"flex",flexDirection:"column",maxHeight:"88vh"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
             <div>
               <div style={{fontSize:11,color:"var(--text-3)",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase"}}>
@@ -4217,6 +4239,7 @@ function PracticePage({ scenario, keys, trialMode, onBack }) {
   const [textInput,     setTextInput]     = useState("");
   const [hintLevel,     setHintLevel]     = useState(null); // null | 1 | 2 | 3
   const [currentHints,  setCurrentHints]  = useState(null);
+  const [hintAnimFrame, setHintAnimFrame] = useState(0);   // 0-3 cycling for loading anim
   const [showSummary,     setShowSummary]     = useState(false);
   const [summary,         setSummary]         = useState(null);
   const [showTranscript,  setShowTranscript]  = useState(false);
@@ -4238,6 +4261,13 @@ function PracticePage({ scenario, keys, trialMode, onBack }) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, interimText, isProcessing]);
+
+  // Hint loading animation — cycles ◐/◑/◒/● while AI is processing
+  useEffect(() => {
+    if (!isProcessing) return;
+    const id = setInterval(() => setHintAnimFrame(f => (f + 1) % 4), 400);
+    return () => clearInterval(id);
+  }, [isProcessing]);
 
   // Opening message from AI + dynamically generated hints
   useEffect(() => {
@@ -4579,24 +4609,32 @@ Reply ONLY with this JSON:
         )}
 
         {/* Hint content */}
-        {hintLevel && currentHints && (
+        {hintLevel && (
           <div className="hint-content">
-            {hintLevel === 1 && <><strong>關鍵字：</strong>{currentHints.hint1}</>}
-            {hintLevel === 2 && <><strong>句型：</strong>{currentHints.hint2}</>}
-            {hintLevel === 3 && (
-              <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}><strong>示範句：</strong>{currentHints.hint3}</div>
-                <button
-                  className="btn btn-primary"
-                  style={{padding:"5px 10px",fontSize:11,flexShrink:0,marginTop:-2}}
-                  onClick={() => { if (!isProcessing) { sendMessage(currentHints.hint3, true); setHintLevel(null); } }}
-                  disabled={isProcessing}
-                  title="直接送出此示範句"
-                >
-                  ✈ 送出
-                </button>
-              </div>
-            )}
+            {isProcessing ? (
+              <span style={{color:"var(--text-3)",fontSize:13,letterSpacing:"0.02em"}}>
+                {["◐","◑","◒","●"][hintAnimFrame]}{" "}
+                Generating Hints{[" ."," .."," ...","...."][hintAnimFrame]}
+              </span>
+            ) : currentHints ? (
+              <>
+                {hintLevel === 1 && <><strong>關鍵字：</strong>{currentHints.hint1}</>}
+                {hintLevel === 2 && <><strong>句型：</strong>{currentHints.hint2}</>}
+                {hintLevel === 3 && (
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                    <div style={{flex:1}}><strong>示範句：</strong>{currentHints.hint3}</div>
+                    <button
+                      className="btn btn-primary"
+                      style={{padding:"5px 10px",fontSize:11,flexShrink:0,marginTop:-2}}
+                      onClick={() => { sendMessage(currentHints.hint3, true); setHintLevel(null); }}
+                      title="直接送出此示範句"
+                    >
+                      ✈ 送出
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
         )}
 
@@ -4643,13 +4681,4 @@ Reply ONLY with this JSON:
                 if (textInput.trim()) { sendMessage(textInput); setTextInput(""); }
               }
             }}
-            placeholder={isListening ? "🎙️ 語音辨識中，說完後確認再送出..." : !hasAzure ? "用文字練習（無 Azure Key，語音功能停用）" : "打字或語音輸入，Enter 送出"}
-            disabled={isProcessing}
-            rows={1}
-          />
-
-          {/* Send button */}
-          <button
-            className="send-btn"
-            disabled={!textInput.trim() || isProcessing}
-            onClick={() => { if (textInput.t
+            placeholder={isListening ? "🎙️ 語音辨識中，說完後確認再送出..." : !hasAzure ? "用文字練
