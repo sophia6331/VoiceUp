@@ -3587,8 +3587,9 @@ async function callAI(systemPrompt, history, userMessage, maxTokens = 800) {
         // 試用期結束
         if (j.error === "TRIAL_ENDED") throw new Error(j.message || "免費試用已結束，請在設定頁面填入您的 Gemini API Key");
         lastErr = j.error?.message || j.error || `HTTP ${res.status}`;
-        if (res.status === 401 || res.status === 403) break;
-        if (res.status === 429) { lastErr = `配額已用盡 (${model})，請稍後再試或檢查帳單設定`; continue; }
+        if (res.status === 401 || res.status === 403) break;                          // key 問題，換 model 沒用
+        if (res.status === 429) { lastErr = `配額已用盡 (${model})，嘗試備用模型...`; continue; }  // 配額超限 → 試下一個
+        if (res.status === 503 || res.status === 500 || res.status === 502) { lastErr = `${model} 伺服器繁忙，嘗試備用模型...`; try { localStorage.removeItem(KEY_GEMINI_MODEL); } catch {} continue; } // 伺服器過載 → 清除快取，試下一個
         break;
       }
       const data = await res.json();
