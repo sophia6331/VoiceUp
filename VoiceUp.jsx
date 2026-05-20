@@ -2343,16 +2343,28 @@ Conversation so far: ${newHistory.map(m=>`${m.role}: ${m.text}`).join(" | ")}`);
                       </div>
                     )}
                   {isUser && msg.feedback && msg.feedback.status !== "ok" && (
-                    <div style={{
-                      marginTop:6,padding:"6px 8px",borderRadius:8,fontSize:11,lineHeight:1.5,
-                      background: msg.feedback.status === "error" ? "rgba(224,90,90,0.15)" : "rgba(59,139,235,0.12)",
-                      color: msg.feedback.status === "error" ? "var(--red)" : "var(--blue-dark)",
-                      borderLeft: `3px solid ${msg.feedback.status === "error" ? "var(--red)" : "var(--blue)"}`,
-                    }}>
-                      {msg.feedback.status === "error" ? "✗ " : "💡 "}
-                      {msg.feedback.suggested && <><span style={{textDecoration:"line-through",opacity:0.7}}>{msg.feedback.original}</span> → <strong>{msg.feedback.suggested}</strong><br/></>}
-                      {msg.feedback.reason}
-                    </div>
+                    <>
+                      <div style={{
+                        marginTop:6,padding:"6px 8px",borderRadius:8,fontSize:11,lineHeight:1.5,
+                        background: msg.feedback.status === "error" ? "rgba(224,90,90,0.15)" : "rgba(59,139,235,0.12)",
+                        color: msg.feedback.status === "error" ? "var(--red)" : "var(--blue-dark)",
+                        borderLeft: `3px solid ${msg.feedback.status === "error" ? "var(--red)" : "var(--blue)"}`,
+                      }}>
+                        {msg.feedback.status === "error" ? "✗ 文法問題　" : "💡 更好的說法　"}
+                        {msg.feedback.suggested && <><span style={{textDecoration:"line-through",opacity:0.7}}>{msg.feedback.original}</span> → <strong>{msg.feedback.suggested}</strong><br/></>}
+                        {msg.feedback.reason}
+                      </div>
+                      {msg.feedback.status === "error" && msg.feedback.also_suggestion && (
+                        <div style={{
+                          marginTop:3,padding:"6px 8px",borderRadius:8,fontSize:11,lineHeight:1.5,
+                          background:"rgba(59,139,235,0.12)",
+                          color:"var(--blue-dark)",
+                          borderLeft:"3px solid var(--blue)",
+                        }}>
+                          💡 更好的說法　{msg.feedback.reason}
+                        </div>
+                      )}
+                    </>
                   )}
                   {isUser && msg.feedback?.status === "ok" && (
                     <div style={{fontSize:10,color:"rgba(26,23,20,0.55)",marginTop:3}}>✅ 表達自然</div>
@@ -3652,25 +3664,29 @@ Stay fully in YOUR character (${scenario.aiRole}) throughout. The user will resp
   const grammarRules = formal
     ? `GRAMMAR FEEDBACK RULES — PROFESSIONAL CONTEXT:
 This is a "${scenario.name}" scenario. Apply PROFESSIONAL/BUSINESS ENGLISH standards.
-A response is only "ok" if it is BOTH grammatically correct AND appropriately professional in register and completeness.
+A response is only "ok" if it is BOTH grammatically correct AND specific, complete, and fluent enough for a professional setting. Short vague answers almost always need a "suggestion" in professional contexts.
 
-- "ok": correct grammar + natural professional phrasing (complete thoughts, appropriate formality, fluent connectors)
-- "suggestion": grammatically correct BUT too brief, too simple, or insufficiently professional for the workplace — for example: very short answers where elaboration is expected, missing linking phrases, overly blunt or choppy phrasing, or informal shortcuts that a native professional would not use in this context. Provide a fuller, more fluent professional version.
-- "error": clear grammar mistake (wrong tense, subject-verb disagreement, wrong preposition, missing article, etc.)
+- "ok": correct grammar + natural professional phrasing — complete, specific, and appropriately formal.
+- "suggestion": grammatically correct but too brief, too vague, too informal, or lacking professional specificity. Even a single sentence can be fine, but it must be specific and complete enough for the workplace. Provide a fuller, more professional version in "suggested".
+- "error": clear grammar mistake (wrong tense, subject-verb disagreement, wrong preposition, missing article, wrong structure like "make user find" instead of "make it easier for users to find", etc.)
+- "also_suggestion": set to true ONLY when status is "error" AND there is also a professional phrasing improvement beyond just fixing the grammar — in that case, "suggested" should fix BOTH the grammar AND upgrade the phrasing to professional standard. Set to false otherwise.
 
-Example — Team Meeting:
-User says: "Yes, I can. I finished the research. Now I am doing the prototype."
-→ Grammatically fine but too fragmented and informal for a meeting update.
-→ status: "suggestion", suggested: "Yes, I can give you that update. I've just completed the research phase and I'm now moving into prototype development, which is currently on schedule."
+Real examples that MUST be flagged as "suggestion":
+x "They need to be good at programming." → Too vague. Suggested: "We are ideally looking for candidates with solid programming skills, particularly in test automation and scripting."
+x "Is there anybody qualified?" → Too blunt. Suggested: "Do we have anyone internally with the right skill set, or should we look into cross-functional support or external hiring?"
 
-Be honest: in professional contexts, short choppy sentences are a real weakness worth flagging.`
+Real example needing BOTH error + also_suggestion (also_suggestion: true):
+x "The new feature is to redesign the wallet section UI to make user find the total asset easier." → Grammar error: "make user find" should be "make it easier for users to find". Also needs professional upgrade. Suggested: "This feature focuses on a UI redesign of the wallet section to streamline how users view their total assets, making key balance information accessible at a glance."
+
+Be honest: in professional contexts, short or vague sentences are a real weakness worth flagging.`
     : `GRAMMAR FEEDBACK RULES — CASUAL CONTEXT:
 This is a "${scenario.name}" scenario. Apply CONVERSATIONAL ENGLISH standards.
 Short, simple, direct answers are natural and perfectly acceptable in casual settings.
 
 - "ok": grammatically correct and sounds natural for casual conversation (brief answers are fine)
-- "suggestion": grammatically correct but there's a clearly more idiomatic or natural-sounding way to say it
-- "error": clear grammar mistake`;
+- "suggestion": grammatically correct but there is a clearly more idiomatic or natural-sounding way to say it
+- "error": clear grammar mistake
+- "also_suggestion": always false in casual context`;
 
   return `You are an English conversation partner helping a Taiwanese intermediate-to-advanced English learner (B1–C1) practice speaking in a "${scenario.name}" scenario.
 
@@ -3688,12 +3704,15 @@ Required JSON format:
     "status": "ok" | "suggestion" | "error",
     "original": "The user's exact sentence if there's an issue (or null)",
     "suggested": "Better version of the sentence (or null)",
-    "reason": "Brief explanation in Traditional Chinese (or null)"
+    "reason": "Brief explanation in Traditional Chinese (or null)",
+    "also_suggestion": false
   },
   "hint1": "A few keywords for the NEXT conversation turn",
   "hint2": "A sentence frame/template for the next turn",
   "hint3": "A complete example STATEMENT the user could say next — NEVER a question, NEVER something the AI would say, always from the user's perspective. Must differ from previous hints."
 }
+
+CRITICAL FOR HINTS: hint1/hint2/hint3 must be DIRECT RESPONSES to YOUR OWN "reply" field above — they must help the user answer YOUR specific question or engage with YOUR specific point just raised. If you asked about skills, hints must be about skills. If you asked about timeline, hints must be about timeline. NEVER generate hints about a different topic that you did not just bring up.
 
 ${grammarRules}
 
@@ -3753,7 +3772,7 @@ function SaveSentenceModal({ sentence, originalSentence, onClose, onSaved }) {
       "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind (no 「」 \" \' or any brackets). Just the plain Chinese translation.",
       [],
       english,
-      250
+      400
     )
       .then(t => { t = (t || "").replace(/^[「『\"\u201C]+|[」』\"\u201D]+$/g, "").trim(); setChinese(t); })
       .catch(() => {})
@@ -3815,7 +3834,7 @@ function SaveSentenceModal({ sentence, originalSentence, onClose, onSaved }) {
                     "Translate the following English sentence to Traditional Chinese (繁體中文). Reply with ONLY the plain translation text. Do NOT add quotation marks of any kind. Just the plain Chinese translation.",
                     [],
                     english,
-                    250
+                    400
                   )
                     .then(t => { t = (t || "").replace(/^[「『"\'\u201C]+|[」』"\'\u201D]+$/g, "").trim(); setChinese(t); })
                     .catch(() => {})
@@ -3979,12 +3998,22 @@ function MessageBubble({ msg, onSave, isSaved, onUnsave }) {
                 <span className="analyzing-dots"><span>.</span><span>.</span><span>.</span></span>
               </span>
             ) : hasFeedback ? (
-              <span
-                className={`grammar-tag ${fb.status === "error" ? "badge-red" : "badge-amber"}`}
-                onClick={() => setShowFeedback(s => !s)}
-              >
-                {fb.status === "error" ? "❌ 文法問題" : "⚠️ 更好的說法"}
-              </span>
+              <>
+                <span
+                  className={`grammar-tag ${fb.status === "error" ? "badge-red" : "badge-amber"}`}
+                  onClick={() => setShowFeedback(s => !s)}
+                >
+                  {fb.status === "error" ? "✗ 文法問題" : "💡 更好的說法"}
+                </span>
+                {fb.status === "error" && fb.also_suggestion && (
+                  <span
+                    className="grammar-tag badge-amber"
+                    onClick={() => setShowFeedback(s => !s)}
+                  >
+                    💡 更好的說法
+                  </span>
+                )}
+              </>
             ) : (
               <span className="grammar-tag badge-green">✅ 表達自然</span>
             )}
@@ -4622,169 +4651,4 @@ Reply ONLY with this JSON:
           <button
             className="send-btn"
             disabled={!textInput.trim() || isProcessing}
-            onClick={() => { if (textInput.trim()) { sendMessage(textInput); setTextInput(""); } }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{width:18,height:18}}>
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Transcript modal */}
-      {showTranscript && (
-        <TranscriptModal
-          messages={messages}
-          initialSavedIds={savedMsgIds}
-          initialEntryMap={savedEntryMap}
-          onClose={() => { setShowTranscript(false); onBack(); }}
-        />
-      )}
-
-      {/* Save sentence modal */}
-      {saveTarget && (
-        <SaveSentenceModal
-          sentence={saveTarget.sentence || saveTarget}
-          originalSentence={saveTarget.original || null}
-          onSaved={(entryId) => {
-            if (saveTarget.msgId) {
-              setSavedMsgIds(prev => new Set([...prev, saveTarget.msgId]));
-              setSavedEntryMap(prev => ({...prev, [saveTarget.msgId]: entryId}));
-            }
-          }}
-          onClose={() => setSaveTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
-export default function VoiceUp() {
-  const [darkMode,      setDarkMode]      = useState(() => LS.get(KEY_DARK_MODE, false));
-  const [onboarded,     setOnboarded]     = useState(() => LS.get(KEY_ONBOARDED, false));
-  const [tab,           setTab]           = useState("home");
-  const [scenario,      setScenario]      = useState(null);
-  const [showCustomModal, setShowCustomModal] = useState(false);
-  const [keys,          setKeys]          = useState(() => ({
-    azureKey:    LS.get(KEY_AZURE_KEY,    ""),
-    azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
-    geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
-  }));
-  // 試用模式：從 localStorage 讀取，並在背景向伺服器驗證
-  const [trialMode, setTrialMode] = useState(() => !!LS.get("vu_trial_mode", false));
-
-  useEffect(() => {
-    let el = document.getElementById("voiceup-styles");
-    if (!el) { el = document.createElement("style"); el.id = "voiceup-styles"; document.head.appendChild(el); }
-    el.textContent = STYLES;
-    let el2 = document.getElementById("voiceup-practice-styles");
-    if (!el2) { el2 = document.createElement("style"); el2.id = "voiceup-practice-styles"; document.head.appendChild(el2); }
-    el2.textContent = PRACTICE_STYLES;
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
-
-  // 每次啟動都向伺服器確認試用期是否仍有效
-  useEffect(() => {
-    fetch("/api/trial-status")
-      .then(r => r.json())
-      .then(d => {
-        const active = !!d.trialActive;
-        setTrialMode(active);
-        LS.set("vu_trial_mode", active);
-      })
-      .catch(() => {}); // 離線或非 Vercel 環境，維持 localStorage 值
-  }, []);
-
-  if (!onboarded) {
-    return <Onboarding onComplete={() => {
-      setKeys({
-        azureKey:    LS.get(KEY_AZURE_KEY,    ""),
-        azureRegion: LS.get(KEY_AZURE_REGION, "eastasia"),
-        geminiKey:   LS.get(KEY_GEMINI_KEY,   ""),
-      });
-      setOnboarded(true);
-    }} />;
-  }
-
-  const handleStartScenario = (s) => {
-    setScenario(s);
-    setTab("practice");
-  };
-
-  const handleStartCustom = () => {
-    setShowCustomModal(true);
-  };
-
-  const handleCustomStart = ({ aiRole, userRole, context }) => {
-    setShowCustomModal(false);
-    const customScenario = {
-      id: "custom", emoji: "✏️", name: "自訂場景",
-      desc: context, level: "自訂",
-      aiRole, userRole, context, customReady: true,
-    };
-    setScenario(customScenario);
-    setTab("practice");
-  };
-
-  const handleBackFromPractice = () => {
-    setScenario(null);
-    setTab("home");
-  };
-
-  const NAV_ITEMS = [
-    { id: "home",     label: "首頁",   iconComp: Icons.Home },
-    { id: "library",  label: "學習庫", iconComp: Icons.Book },
-    { id: "progress", label: "進度",   iconComp: Icons.Chart },
-    { id: "settings", label: "設定",   iconComp: Icons.Gear },
-  ];
-
-  return (
-    <div className="app-shell">
-      {tab === "home" && <HomePage keys={keys} trialMode={trialMode} onStartScenario={handleStartScenario} onStartCustom={handleStartCustom} />}
-      {tab === "library" && <LibraryPage />}
-      {tab === "progress" && <ProgressPage />}
-      {tab === "settings" && (
-        <SettingsPage
-          keys={keys}
-          setKeys={setKeys}
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-          trialMode={trialMode}
-        />
-      )}
-      {tab === "practice" && scenario && (
-        <PracticePage scenario={scenario} keys={keys} trialMode={trialMode} onBack={handleBackFromPractice} />
-      )}
-
-      {showCustomModal && (
-        <CustomScenarioModal
-          onStart={handleCustomStart}
-          onClose={() => setShowCustomModal(false)}
-        />
-      )}
-
-      {tab !== "practice" && (
-        <nav className="bottom-nav">
-          {NAV_ITEMS.map(item => {
-            const isActive = tab === item.id;
-            const IconComp = item.iconComp;
-            return (
-              <button
-                key={item.id}
-                className={`nav-item ${isActive ? "active" : ""}`}
-                onClick={() => setTab(item.id)}
-              >
-                <IconComp active={isActive} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-      )}
-    </div>
-  );
-}
+            onClick={() => { if (textInput.t
